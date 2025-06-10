@@ -21,13 +21,15 @@ modalities:
 
 start_frame_id: 0
 partial_ratio: 0.10
-mixing_ratio:  0.2
+
+# TODO: set to 0.0 cause not using dino feature
+mixing_ratio:  0.0
 pcl_type: 'sfm_mask'
 sfm_type: 'colmap50'
 cam_tform_obj_type: 'sfm'
 # cam_tform_obj_type: 'meta'
 
-# pcl_type: 'meta_mask'
+#pcl_type: 'meta_mask'
 # sfm_type: 'meta'
 # pcl_type: 'meta'
 # sfm_type: 'meta'
@@ -42,8 +44,11 @@ mesh_type: 'alpha500'
 mesh_feats_type: 'M_dinov2_vitb14_frozen_base_T_centerzoom512_R_acc' # dinov2_vitb14_frozen_base_no_norm M_dinov2_frozen_base_T_centerzoom512_R_acc, M_nemo_old_T_centerzoom512_R_acc 'R_acc' # 'R_avg', 'R_avg_norm'
 #mesh_feats_type: 'M_dinov2_vitb14_frozen_base_T_centerzoom512_R_avg'
 mesh_feats_dist_reduce_type: 'min_avg' # 'avg', 'min', 'min_avg'
-#use_sph: False
-use_sph: 'sph_excludes_co3d_with_dino'
+
+# TODO: change to False
+use_sph: False
+#use_sph: 'sph_excludes_co3d_with_dino'
+
 use_flipped_feature: False
 use_sd: False
 flip_sfm: False
@@ -53,8 +58,8 @@ frames_count_max_per_sequence:
 sequences_count_max_per_category:
 block_negative_depth: False
 
-path_raw: /CT/CO3D-dataset/nobackup/CO3D_V2/
-path_preprocess: /CT/3D_DST_Scene/work/od3d/datasets/CO3D_V2_Preprocess
+path_raw: /storage/group/dataset_mirrors/01_incoming/CO3D_V2
+path_preprocess: /storage/group/dataset_mirrors/01_incoming/CO3D_V2_Preprocess
 
 setup:
   enabled: False
@@ -69,7 +74,7 @@ extract_meta:
 preprocess:
   sfm:
     enabled: False
-    override: False
+    override: True
   mask:
     enabled: False
     override: False
@@ -114,19 +119,29 @@ preprocess:
   # teddybear:
   #   '187_20219_38873':
 
-dict_nested_frames_ban:
-  car:
-    '206_21796_45540': # toy car
-    '429_60346_116890': # problem: 1: cam inside mesh, 2: too close
-    '194_20894_41084': # problem: mask front vehicle zero (behind vehicle non zero)
-    '194_20898_41093': # problem: mask front vehicle zero (behind vehicle non zero)
-    '216_22827_48422': # problem: bad relative pose estimation
-    '216_22841_48461': # problem: bad relative pose estimation
-    '351_37072_67647': # problem: toy car
-    '216_22833_48435': # problem: bad relative pose estimation
-    '340_35306_64677': # problem: bad relative pose estimation (plus change of sequence?)
+#dict_nested_frames_ban:
+#  car:
+#    '206_21796_45540': # toy car
+#    '429_60346_116890': # problem: 1: cam inside mesh, 2: too close
+#    '194_20894_41084': # problem: mask front vehicle zero (behind vehicle non zero)
+#    '194_20898_41093': # problem: mask front vehicle zero (behind vehicle non zero)
+#    '216_22827_48422': # problem: bad relative pose estimation
+#    '216_22841_48461': # problem: bad relative pose estimation
+#    '351_37072_67647': # problem: toy car
+#    '216_22833_48435': # problem: bad relative pose estimation
+#    '340_35306_64677': # problem: bad relative pose estimation (plus change of sequence?)
 
-    '206_21799_45886':  # problem: bad relative pose estimation
+#    '206_21799_45886':  # problem: bad relative pose estimation
+#    '351_37072_67647': # problem: toy car
+#    '216_22833_48435': # problem: bad relative pose estimation
+#    '340_35306_64677': # problem: bad relative pose estimation (plus change of sequence?)
+
+#    '206_21799_45886':  # problem: bad relative pose estimation
+#    '351_37072_67647': # problem: toy car
+#    '216_22833_48435': # problem: bad relative pose estimation
+#    '340_35306_64677': # problem: bad relative pose estimation (plus change of sequence?)
+
+#    '206_21799_45886':  # problem: bad relative pose estimation
 #    '429_60401_117239': # problem: closeup
 #    '194_20899_41094':  # relabel?
 #    '216_22795_47233':  # relabel?
@@ -138,9 +153,9 @@ dict_nested_frames_ban:
 #    '216_22796_47484':
 #    '216_22803_47496':
 #    '216_22797_47235':
-    '106_12674_24709': # broken colmap
-  bicycle:
-    '377_43836_87236': # two bicycles with inverse directions
+#    '106_12674_24709': # broken colmap
+#  bicycle:
+#    '377_43836_87236': # two bicycles with inverse directions
 
 #dict_nested_frames:
 #  car:
@@ -262,7 +277,7 @@ path_cuboids: ${.path_preprocess}/cuboids/avg/co3d_50s_train # ${.name}
 fpaths_cuboids:
     car: ${..path_cuboids}/car.ply # car/106_12650_23736.ply /cuboid_max_1000.ply
 
-# categories:
+#categories:
 # - bicycle
 #  - truck
 #  - train
@@ -281,13 +296,3 @@ fpaths_cuboids:
 #  - hydrant
 #  - chair
 #  - laptop
-#  - book
-#  - backpack
-#  - cellphone # from cellphone on, no zsp categories
-#  - microwave
-#  - bench
-#  - bottle
-#  - couch
-#  - cup
-#  - suitcase
-#  - tv

@@ -15,25 +15,25 @@ sequences_require_gt_pose: True
 
 categories:
   - bicycle
-  - truck
-  - train
-  - teddybear
-  - car
-  - bus
-  - motorcycle
-  - keyboard
-  - handbag
-  - remote
-  - airplane
-  - toilet
-  - hairdryer
-  - mouse
-  - toaster
-  - hydrant
-  - chair
-  - laptop
-  - book
-  - backpack
+#  - truck
+#  - train
+#  - teddybear
+#  - car
+#  - bus
+#  - motorcycle
+#  - keyboard
+#  - handbag
+#  - remote
+#  - airplane
+#  - toilet
+#  - hairdryer
+#  - mouse
+#  - toaster
+#  - hydrant
+#  - chair
+#  - laptop
+#  - book
+#  - backpack
 #  - cellphone # from cellphone on, no zsp categories
  #- microwave
 #  - bench

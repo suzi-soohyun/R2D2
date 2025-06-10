@@ -160,6 +160,7 @@ def inv_tform4x4(a_tform4x4_b):
 
 
 def tform4x4(tform1_4x4, tform2_4x4):
+    tform2_4x4 = tform2_4x4.to(dtype=tform1_4x4.dtype, device=tform1_4x4.device)
     return torch.bmm(
         tform1_4x4.reshape(-1, 4, 4),
         tform2_4x4.reshape(-1, 4, 4),

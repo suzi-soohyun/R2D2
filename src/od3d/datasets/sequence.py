@@ -29,8 +29,8 @@ from pathlib import Path
 import torch
 from od3d.cv.reconstruction.clean import (
     get_pcl_clean_with_masks,
-    remove_floater_by_camera_position,
-    remove_floater_by_median_points,
+    # remove_floater_by_camera_position,
+    # remove_floater_by_median_points,
 )
 from od3d.cv.io import write_pts3d_with_colors_and_normals
 from od3d.datasets.object import OD3D_CAM_TFORM_OBJ_TYPES
@@ -52,7 +52,7 @@ from od3d.cv.geometry.transform import (
     transf3d,
 )
 from od3d.datasets.object import OD3D_TFROM_OBJ_TYPES
-from od3d.datasets.path_utils import find_start_directory
+# from od3d.datasets.path_utils import find_start_directory
 from pytorch3d.renderer import PerspectiveCameras
 import pytorch3d
 from od3d.cv.reconstruction import camera_alignment
@@ -2345,18 +2345,18 @@ class OD3D_SequenceMeshMixin(
         import re
         from od3d.cv.geometry.objects3d.meshes import Meshes
         from od3d.cv.visual.sample import sample_pxl2d_pts
-        from od3d.SphericalMaps.get_feature import get_feature, my_get_feature
-        from od3d.SphericalMaps.dino_mapper import DINOMapper, MyDINOMapper
+        # from od3d.SphericalMaps.get_feature import get_feature, my_get_feature
+        # from od3d.SphericalMaps.dino_mapper import DINOMapper, MyDINOMapper
 
         # import detectron2
         # from detectron2.config import LazyConfig
-        from od3d.models.sd_feature import (
-            load_model,
-            process_features_and_mask,
-            get_mask,
-            co_pca,
-            pca_process,
-        )
+        # from od3d.models.sd_feature import (
+        #     load_model,
+        #     process_features_and_mask,
+        #     get_mask,
+        #     co_pca,
+        #     pca_process,
+        # )
 
         if (
             not override
@@ -2766,127 +2766,127 @@ class OD3D_SequenceMeshMixin(
         #     viewpoints3d = transf3d_broadcast(viewpoints3d, normal3d_transf_obj)
         #     verts3d = transf3d_broadcast(verts3d, normal3d_transf_obj)
         #     show_scene(pts3d=[verts3d, viewpoints3d], lines3d=[torch.Tensor([[[0., 0., 0.], [0., -1., 0.]]])])
-        if self.name_unique.split("/")[1] not in self.sequence_annotated:
+        # if self.name_unique.split("/")[1] not in self.sequence_annotated:
 
-            def extract_indices_from_filenames(directory):
-                # Define the regex pattern to match the file names and extract indices
-                pattern = re.compile(r"frame(\d+)\.pt")
-                # List directory contents
-                files = os.listdir(directory)
-                # Extract indices from file names using the regex pattern
-                indices = [
-                    int(pattern.search(file).group(1))
-                    for file in files
-                    if pattern.search(file)
-                ]
-                return indices
+        #     def extract_indices_from_filenames(directory):
+        #         # Define the regex pattern to match the file names and extract indices
+        #         pattern = re.compile(r"frame(\d+)\.pt")
+        #         # List directory contents
+        #         files = os.listdir(directory)
+        #         # Extract indices from file names using the regex pattern
+        #         indices = [
+        #             int(pattern.search(file).group(1))
+        #             for file in files
+        #             if pattern.search(file)
+        #         ]
+        #         return indices
 
-            device = get_default_device()
-            feats2d_net_list = torch.cat(feats2d_net_list, dim=0)
-            # feats2d_net_list = feats2d_net_list.detach().cpu().numpy()
-            # dirname = f'Partial_Ratio_{100* self.partial_ratio}_Percent'
-            dirname = f"Partial_Ratio_{100* self.partial_ratio}_Percent_start_frame_{self.start_frame_id}_flip_sfm_{self.flip_sfm}"
-            # fpath_pcl_out = self.path_preprocess.joinpath(
-            #     "pcl",
-            #     f"{self.pcl_type}",
-            #     f"{self.sfm_type}",
-            #     self.name_unique,
-            #     dirname,
-            #     "pcl.ply",)
+        #     device = get_default_device()
+        #     feats2d_net_list = torch.cat(feats2d_net_list, dim=0)
+        #     # feats2d_net_list = feats2d_net_list.detach().cpu().numpy()
+        #     # dirname = f'Partial_Ratio_{100* self.partial_ratio}_Percent'
+        #     dirname = f"Partial_Ratio_{100* self.partial_ratio}_Percent_start_frame_{self.start_frame_id}_flip_sfm_{self.flip_sfm}"
+        #     # fpath_pcl_out = self.path_preprocess.joinpath(
+        #     #     "pcl",
+        #     #     f"{self.pcl_type}",
+        #     #     f"{self.sfm_type}",
+        #     #     self.name_unique,
+        #     #     dirname,
+        #     #     "pcl.ply",)
 
-            # if not override and fpath_pcl_out.exists():
-            #     logger.info(f"fpath sfm mask pcl already exists at {fpath_pcl_out}")
-            #     return
+        #     # if not override and fpath_pcl_out.exists():
+        #     #     logger.info(f"fpath sfm mask pcl already exists at {fpath_pcl_out}")
+        #     #     return
 
-            base_path = self.path_preprocess.joinpath(
-                "sfm", self.sfm_type, self.name_unique
-            )
-            indices = sorted(
-                extract_indices_from_filenames(
-                    base_path.joinpath(dirname).joinpath("extrinsic")
-                )
-            )
-            frames = self.get_frames()
+        #     base_path = self.path_preprocess.joinpath(
+        #         "sfm", self.sfm_type, self.name_unique
+        #     )
+        #     indices = sorted(
+        #         extract_indices_from_filenames(
+        #             base_path.joinpath(dirname).joinpath("extrinsic")
+        #         )
+        #     )
+        #     frames = self.get_frames()
 
-            H, W = self.get_min_HW()
-            # note: this is only required if the frames have different sizes
-            if H is not None and W is not None:
-                masks = torch.stack(
-                    [frame.read_mask()[:, :H, :W] for frame in frames],
-                    dim=0,
-                ).to(device=device)
-            else:
-                masks = torch.stack([frame.read_mask() for frame in frames], dim=0).to(
-                    device=device,
-                )
+        #     H, W = self.get_min_HW()
+        #     # note: this is only required if the frames have different sizes
+        #     if H is not None and W is not None:
+        #         masks = torch.stack(
+        #             [frame.read_mask()[:, :H, :W] for frame in frames],
+        #             dim=0,
+        #         ).to(device=device)
+        #     else:
+        #         masks = torch.stack([frame.read_mask() for frame in frames], dim=0).to(
+        #             device=device,
+        #         )
 
-            cams_intr4x4 = (
-                torch.stack(
-                    [
-                        torch.load(
-                            base_path.joinpath(dirname)
-                            .joinpath("intrinsic")
-                            .joinpath(f"frame{str(index).zfill(6)}.pt")
-                        )
-                        for index in indices
-                    ],
-                    dim=0,
-                )
-                .to(device=device)
-                .to(dtype=torch.float32)
-            )
+        #     cams_intr4x4 = (
+        #         torch.stack(
+        #             [
+        #                 torch.load(
+        #                     base_path.joinpath(dirname)
+        #                     .joinpath("intrinsic")
+        #                     .joinpath(f"frame{str(index).zfill(6)}.pt")
+        #                 )
+        #                 for index in indices
+        #             ],
+        #             dim=0,
+        #         )
+        #         .to(device=device)
+        #         .to(dtype=torch.float32)
+        #     )
 
-            cams_tform4x4_obj = (
-                torch.stack(
-                    [
-                        torch.load(
-                            base_path.joinpath(dirname)
-                            .joinpath("extrinsic")
-                            .joinpath(f"frame{str(index).zfill(6)}.pt")
-                        )
-                        for index in indices
-                    ],
-                    dim=0,
-                )
-                .to(device=device)
-                .to(dtype=torch.float32)
-            )
+        #     cams_tform4x4_obj = (
+        #         torch.stack(
+        #             [
+        #                 torch.load(
+        #                     base_path.joinpath(dirname)
+        #                     .joinpath("extrinsic")
+        #                     .joinpath(f"frame{str(index).zfill(6)}.pt")
+        #                 )
+        #                 for index in indices
+        #             ],
+        #             dim=0,
+        #         )
+        #         .to(device=device)
+        #         .to(dtype=torch.float32)
+        #     )
 
-            exact_mesh = Mesh.load_from_file(
-                fpath=self.get_fpath_mesh(mesh_type="alpha500"),
-                device=device,
-            )
-            exact_mesh_vertices = exact_mesh.verts
-            for k in range(len(indices)):
-                # print('index ', index)
-                index = indices[k]
-                start = time.time()
-                depth_path = base_path.joinpath(dirname).joinpath(
-                    f"dense/stereo/depth_maps/frame{str(index).zfill(6)}.jpg.geometric.bin"
-                )
-                depth_mask_path = self.path_raw.joinpath(self.name_unique).joinpath(
-                    f"depth_masks/frame{str(index).zfill(6)}.png"
-                )
-                depth = read_from_depth_binary_array(depth_path)
-                depth_mask = Image.open(depth_mask_path)
-                H = depth.shape[0]
-                W = depth.shape[1]
+        #     exact_mesh = Mesh.load_from_file(
+        #         fpath=self.get_fpath_mesh(mesh_type="alpha500"),
+        #         device=device,
+        #     )
+        #     exact_mesh_vertices = exact_mesh.verts
+        #     for k in range(len(indices)):
+        #         # print('index ', index)
+        #         index = indices[k]
+        #         start = time.time()
+        #         depth_path = base_path.joinpath(dirname).joinpath(
+        #             f"dense/stereo/depth_maps/frame{str(index).zfill(6)}.jpg.geometric.bin"
+        #         )
+        #         depth_mask_path = self.path_raw.joinpath(self.name_unique).joinpath(
+        #             f"depth_masks/frame{str(index).zfill(6)}.png"
+        #         )
+        #         depth = read_from_depth_binary_array(depth_path)
+        #         depth_mask = Image.open(depth_mask_path)
+        #         H = depth.shape[0]
+        #         W = depth.shape[1]
 
-                depth_mask = np.array(depth_mask.resize((W, H), Image.NEAREST))
-                depth_mask = np.flip(depth_mask, axis=1)
+        #         depth_mask = np.array(depth_mask.resize((W, H), Image.NEAREST))
+        #         depth_mask = np.flip(depth_mask, axis=1)
 
-                masked_depth = depth * depth_mask
-                backproject_with_feat(
-                    masked_depth,
-                    feats2d_net_list[k],
-                    cams_intr4x4[k].cpu().numpy(),
-                    np.linalg.inv(cams_tform4x4_obj[k].cpu().numpy()),
-                    exact_mesh_vertices.cpu().numpy(),
-                    meshes_verts_aggregated_features_test,
-                )
+        #         masked_depth = depth * depth_mask
+        #         backproject_with_feat(
+        #             masked_depth,
+        #             feats2d_net_list[k],
+        #             cams_intr4x4[k].cpu().numpy(),
+        #             np.linalg.inv(cams_tform4x4_obj[k].cpu().numpy()),
+        #             exact_mesh_vertices.cpu().numpy(),
+        #             meshes_verts_aggregated_features_test,
+        #         )
 
-                end = time.time()
-                print("time is ", end - start)
+        #         end = time.time()
+        #         print("time is ", end - start)
 
         # for i in range(len(meshes_verts_aggregated_features_test)):
         #     feat_i  = torch.mean(meshes_verts_aggregated_features_test[i], dim=0)

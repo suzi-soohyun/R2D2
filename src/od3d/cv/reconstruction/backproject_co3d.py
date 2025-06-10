@@ -3,7 +3,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import open3d
 import torch
-from mast3r.mast3r.fast_nn import fast_reciprocal_NNs
+import sys
+sys.path.append('/home/stud/jiso/C3PO/third_party/mast3r')
+
+print(sys.path)
+
+from mast3r.fast_nn import fast_reciprocal_NNs
 from PIL import Image
 from scipy.spatial import cKDTree
 from sklearn.decomposition import PCA

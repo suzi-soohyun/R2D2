@@ -15,25 +15,25 @@ seed_number: 0
 
 categories:
   - bicycle
-  - truck
-  - train
-  - teddybear  # mesh dist problem
-  - car
-  - bus
-  - motorcycle
-  - keyboard  # mesh dist problem
-  - handbag  # mesh dist problem
-  - remote
-  - airplane
-  - toilet
-  - hairdryer
-  - mouse  # mesh dist problem
-  - toaster
-  - hydrant
-  - chair
-  - laptop
-  - book
-  - backpack
+#  - truck
+#  - train
+#  - teddybear  # mesh dist problem
+#  - car
+#  - bus
+#  - motorcycle
+#  - keyboard  # mesh dist problem
+#  - handbag  # mesh dist problem
+#  - remote
+#  - airplane
+#  - toilet
+#  - hairdryer
+#  - mouse  # mesh dist problem
+#  - toaster
+#  - hydrant
+#  - chair
+#  - laptop
+#  - book
+#  - backpack
 #   - cellphone # from cellphone on, no zsp categories
 #   - microwave
 #   - bench

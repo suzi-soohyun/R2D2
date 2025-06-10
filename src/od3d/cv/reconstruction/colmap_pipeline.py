@@ -41,7 +41,7 @@ class ColmapPipeline:
         ratio,
         start_frame_id,
         flip_sfm,
-        colmap_exe="/CT/3D_DST_Scene/work/anaconda3/envs/ma/bin/colmap",
+        colmap_exe="/home/stud/jiso/miniconda3/envs/r2d2/bin/colmap",
     ):
         #  colmap_exe = '/var/tmp/vcpkg/packages/colmap_x64-linux/tools/colmap/colmap'):
         self.image_dir = image_dir

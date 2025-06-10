@@ -40,9 +40,10 @@ mesh_feats_type: 'M_dinov2_vitb14_frozen_base_T_centerzoom512_R_acc'
 mesh_feats_dist_reduce_type: 'min_avg' # 'avg', 'min', 'min_avg'
 
 # tform_obj_type: 'label3d_cuboid' # 'label3d_cuboid' 'aligned_N_alpha500_dinov2b/r0', 'label3d_cuboid_meta'
-#use_sph: False
-mixing_ratio: 0.2
-use_sph: 'sph_excludes_co3d_with_dino'
+use_sph: False
+# mixing_ratio: 0.2
+mixing_ratio: 1.0
+# use_sph: 'sph_excludes_co3d_with_dino'
 use_flipped_feature: False
 use_sd: False
 flip_sfm: False
@@ -51,8 +52,8 @@ frames_count_max_per_sequence:
 sequences_count_max_per_category:
 block_negative_depth: False
 
-path_raw: /CT/CO3D-dataset/nobackup/CO3D_V2/
-path_preprocess: /CT/3D_DST_Scene/work/od3d/datasets/CO3D_V2_Preprocess
+path_raw: /storage/group/dataset_mirrors/01_incoming/CO3D_V2
+path_preprocess: /storage/group/dataset_mirrors/01_incoming/CO3D_V2_Preprocess
 
 setup:
   enabled: False
@@ -84,7 +85,7 @@ preprocess:
     enabled: False
     override: False
   mesh_feats_dist:
-    enabled: False
+    enabled: True
     override: False
 
 #sequences_require_good_cam_movement: False
@@ -93,6 +94,31 @@ preprocess:
 #sequences_count_max_per_category: None # None
 
 # dict_nested_frames:
+#   tv:
+#     '28_940_2112':
+#     '28_967_2810':
+#     '28_984_2853':
+    # '48_2704_7985':
+    # '48_2742_8095':
+    # '48_2757_8246':
+    # '48_2763_8316':
+    # '50_2968_8917':
+    # '396_49386_97450':
+    # '396_49452_97531':
+    # '396_49581_97726':
+    # '396_49630_97794':
+    # '396_49697_97892':
+    # '397_49980_98389':
+    # '397_49994_98417':
+    # '397_50106_98543':
+    # '397_50126_98564':
+    # '397_50319_98835':
+    # '398_50377_98938':
+    # '398_50419_98956':
+    # '398_50447_98995':
+    # '398_50481_99038':
+    # '398_50483_99041':
+    # '401_52103_102180':
 #   bicycle:
 #     '136_15656_31168':
 
@@ -253,7 +279,7 @@ categories:
 #  - baseballbat
 #  - baseballglove
 #  - bench
- - bicycle
+#  - bicycle
 #  - book
 #  - bottle
 #  - bowl
@@ -293,7 +319,7 @@ categories:
 #  - toyplane
 #  - toytrain
 #  - toytruck
-#  - tv
+ - tv
 #  - umbrella
 #  - vase
 #  - wineglass

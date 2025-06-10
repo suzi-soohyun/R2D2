@@ -1122,6 +1122,9 @@ class Meshes(OD3D_Objects3D):
         B = cams_tform4x4_obj.shape[0]
         # if imgs_sizes.dim() == 2:
         #    imgs_sizes = imgs_sizes[None,].expand(B, imgs_sizes.shape[0], imgs_sizes.shape[1])
+        print(cams_intr4x4.dtype, cams_tform4x4_obj.dtype)
+        cams_tform4x4_obj = cams_tform4x4_obj.to(dtype=cams_intr4x4.dtype, device=cams_intr4x4.device)
+        print(cams_intr4x4.dtype, cams_tform4x4_obj.dtype)
         cams_proj4x4_obj = torch.bmm(cams_intr4x4, cams_tform4x4_obj)
         verts3d = self.get_verts_stacked_with_mesh_ids(mesh_ids=mesh_ids)
         verts2d = proj3d2d_broadcast(verts3d, proj4x4=cams_proj4x4_obj[:, None])

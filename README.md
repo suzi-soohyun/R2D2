@@ -1,4 +1,4 @@
-## Object Detection 3D (OD3D)
+## R2D2 Project based on C3PO, OD3D
 
 ### Install
 
