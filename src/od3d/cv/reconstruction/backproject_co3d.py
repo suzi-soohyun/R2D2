@@ -3,10 +3,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import open3d
 import torch
-from mast3r.mast3r.fast_nn import fast_reciprocal_NNs
 from PIL import Image
 from scipy.spatial import cKDTree
 from sklearn.decomposition import PCA
+
+from pathlib import Path
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(ROOT_DIR / "third_party" / "mast3r"))
+from mast3r.fast_nn import fast_reciprocal_NNs
 
 
 def _load_16bit_png_depth(depth_png):

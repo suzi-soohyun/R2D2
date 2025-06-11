@@ -1160,9 +1160,9 @@ class OD3D_SequenceDataset(OD3D_Dataset):
             sequence = self.get_sequence_by_name_unique(
                 name_unique=sequence_name_unique,
             )
-            category = sequence.category
-            sequences_annotated = self.dict_nested_frames_annotated[category].keys()
-            sequence.sequence_annotated = sequences_annotated
+            # category = sequence.category
+            # sequences_annotated = self.dict_nested_frames_annotated[category].keys()
+            # sequence.sequence_annotated = sequences_annotated
             sequence.preprocess_mesh_feats(override=override)
 
             # copied_sequence = deepcopy(sequence)
@@ -1449,15 +1449,16 @@ class OD3D_SequenceDataset(OD3D_Dataset):
             sequence = self.get_sequence_by_name_unique(
                 name_unique=sequence_name_unique,
             )
-            sequences_annotated = list(
-                self.dict_nested_frames_annotated[sequence.category].keys()
-            )
-            if sequence.name in sequences_annotated:
-                sequence.preprocess_tform_obj(
-                    override=override, tform_obj_type="label3d_cuboid_meta"
-                )
-            else:
-                sequence.preprocess_tform_obj(override=override, tform_obj_type="raw")
+            sequence.preprocess_tform_obj(override = override)
+            # sequences_annotated = list(
+            #     self.dict_nested_frames_annotated[sequence.category].keys()
+            # )
+            # if sequence.name in sequences_annotated:
+            #     sequence.preprocess_tform_obj(
+            #         override=override, tform_obj_type="label3d_cuboid_meta"
+            #     )
+            # else:
+            #     sequence.preprocess_tform_obj(override=override, tform_obj_type="raw")
 
     def preprocess(self, config_preprocess: DictConfig):
         logger.info("preprocess")

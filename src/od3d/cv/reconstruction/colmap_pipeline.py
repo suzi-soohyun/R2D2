@@ -35,15 +35,17 @@ class ColmapPipeline:
         self,
         image_dir,
         output_dir,
-        #  image_dir = PosixPath('/CT/3D_DST_Scene/work/od3d/datasets/CO3D/bicycle/136_15656_31168/images/'),
-        #  output_dir = PosixPath('/CT/3D_DST_Scene/work/od3d/datasets/CO3D_Preprocess/sfm/colmap50/bicycle/136_15656_31168') ,
         file_num,
         ratio,
         start_frame_id,
         flip_sfm,
-        colmap_exe="/CT/3D_DST_Scene/work/anaconda3/envs/ma/bin/colmap",
     ):
-        #  colmap_exe = '/var/tmp/vcpkg/packages/colmap_x64-linux/tools/colmap/colmap'):
+        import shutil
+        colmap_exe = shutil.which("colmap")
+        if colmap_exe is None:
+            #colmap_exe="/home/stud/jiso/miniconda3/envs/r2d2/bin/colmap"
+            raise RuntimeError("COLMAP not found in PATH. Activate environment or install it.")
+        
         self.image_dir = image_dir
         self.output_dir = output_dir
         self.colmap_exe = colmap_exe

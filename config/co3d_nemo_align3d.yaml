@@ -15,25 +15,25 @@ seed_number: 0
 
 categories:
   - bicycle
-  - truck
-  - train
-  - teddybear
-  - car
-  - bus
-  - motorcycle
-  - keyboard
-  - handbag
-  - remote
-  - airplane
-  - toilet
-  - hairdryer
-  - mouse
-  - toaster
-  - hydrant
-  - chair
-  - laptop
-  - book
-  - backpack
+  # - truck
+  # - train
+  # - teddybear
+  # - car
+  # - bus
+  # - motorcycle
+  # - keyboard
+  # - handbag
+  # - remote
+  # - airplane
+  # - toilet
+  # - hairdryer
+  # - mouse
+  # - toaster
+  # - hydrant
+  # - chair
+  # - laptop
+  # - book
+  # - backpack
   #- cellphone # from cellphone on, no zsp categories
   # - microwave
   # - bench
@@ -89,10 +89,10 @@ method:
         enabled: False
         override: False
       mesh_feats:
-        enabled: False
+        enabled: True
         override: False
       mesh_feats_dist:
-        enabled: False
+        enabled: True
         override: False
 
 

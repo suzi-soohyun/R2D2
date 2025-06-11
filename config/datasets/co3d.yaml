@@ -40,7 +40,7 @@ mesh_feats_type: 'M_dinov2_vitb14_frozen_base_T_centerzoom512_R_acc'
 mesh_feats_dist_reduce_type: 'min_avg' # 'avg', 'min', 'min_avg'
 
 # tform_obj_type: 'label3d_cuboid' # 'label3d_cuboid' 'aligned_N_alpha500_dinov2b/r0', 'label3d_cuboid_meta'
-#use_sph: False
+# use_sph: False
 mixing_ratio: 0.2
 use_sph: 'sph_excludes_co3d_with_dino'
 use_flipped_feature: False
@@ -51,8 +51,8 @@ frames_count_max_per_sequence:
 sequences_count_max_per_category:
 block_negative_depth: False
 
-path_raw: /CT/CO3D-dataset/nobackup/CO3D_V2/
-path_preprocess: /CT/3D_DST_Scene/work/od3d/datasets/CO3D_V2_Preprocess
+path_raw: /storage/group/dataset_mirrors/01_incoming/CO3D_V2
+path_preprocess: /storage/group/dataset_mirrors/01_incoming/CO3D_V2_Preprocess
 
 setup:
   enabled: False
