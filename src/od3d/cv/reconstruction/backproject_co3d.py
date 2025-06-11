@@ -235,22 +235,3 @@ def read_from_depth_binary_array(depth_binary_path):
     depth_map[depth_map < min_depth] = min_depth
     depth_map[depth_map > max_depth] = max_depth
     return np.transpose(array, (1, 0, 2)).squeeze()
-
-
-def tell_left_from_right_sd_feature(
-    ref_sd_feature,
-    src_sd_feature,
-    src_sd_feature_flipped,
-    mask_ref,
-    mask_src,
-    mask_src_flipped,
-    device="cuda",
-):
-    matches_im0, matches_im1 = fast_reciprocal_NNs(
-        ref_sd_feature,
-        src_sd_feature,
-        subsample_or_initxy1=8,
-        device=device,
-        dist="dot",
-        block_size=2**13,
-    )

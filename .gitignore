@@ -167,6 +167,6 @@ ConDor
 detectron2
 gtsam
 results_spair
-src/od3d/SphericalMaps/
+# src/od3d/SphericalMaps/
 benchmark_dataset_partial_views
 benchmark_dataset_partial_views.zip

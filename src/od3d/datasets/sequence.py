@@ -62,7 +62,6 @@ from od3d.cv.reconstruction.backproject_co3d import (
     read_from_depth_binary_array,
     backproject_with_rgb,
     backproject_with_feat,
-    tell_left_from_right_sd_feature,
 )
 import time
 
@@ -2252,12 +2251,6 @@ class OD3D_SequenceMeshMixin(
         from od3d.SphericalMaps.get_feature import get_feature, my_get_feature
         from od3d.SphericalMaps.dino_mapper import DINOMapper, MyDINOMapper
 
-        from od3d.models.sd_feature import ( # stable diffusion feature
-            load_model,
-            process_features_and_mask,
-            pca_process,
-        )
-
         if (
             not override
             and self.fpath_mesh_feats.exists()
@@ -2293,14 +2286,6 @@ class OD3D_SequenceMeshMixin(
         transform = SequentialTransform(
             [OD3D_Transform.create_by_name(transform_name), model.transform],
         )
-        if self.use_sd:
-            sd_model, sd_aug = load_model(
-                diffusion_ver="v1-3",
-                image_size=960,
-                num_timesteps=100,
-                block_indices=[2, 5, 8, 11],
-            )
-            # sd_model, sd_aug = None, None
         dataloader = self.get_dataloader_partial(
             batch_size=6,
             shuffle=False,
@@ -2451,138 +2436,30 @@ class OD3D_SequenceMeshMixin(
                 feats2d_net = feats2d_net / torch.norm(feats2d_net, dim=1, keepdim=True)
                 if self.use_sph == "sph_excludes_co3d_with_dino":
                     mixing_ratio = self.mixing_ratio
-                    if self.use_sd:
-                        category = self.category
-                        input_text = "a photo of " + category
-                        mean = torch.tensor([0.485, 0.456, 0.406]).cuda()
-                        std = torch.tensor([0.229, 0.224, 0.225]).cuda()
-                        sd_feature_list = []
-                        idx = 0
-                        for img in batch.rgb:
-                            img = (
-                                img * std[:, None, None] + mean[:, None, None]
-                            ) * 255.0
-                            img = img.permute([1, 2, 0])
-                            # img = img[:, :, [2,1,0]]
-                            img = img.cpu().numpy().astype(np.uint8)
-                            print("img shape ", img.shape)
-                            image = Image.fromarray(img)
-                            img = resize(image, 512, resize=True, to_pil=True)
-                            img.save(f"img_{idx}.png")
+                    feats2d_net_dino = model(batch.rgb)
 
-                            features1 = process_features_and_mask(
-                                sd_model,
-                                sd_aug,
-                                img,
-                                input_text=input_text,
-                                mask=False,
-                                raw=True,
-                            )
-                            # print('features 1 ', features1)
-                            # features1 = co_pca(features1, [256, 256, 256])
-                            features1 = pca_process(features1)
-                            features1 = torch.cat(
-                                [
-                                    features1["s4"],
-                                    torch.nn.functional.interpolate(
-                                        features1["s5"],
-                                        size=(features1["s4"].shape[-2:]),
-                                        mode="bilinear",
-                                    ),
-                                ],
-                                dim=1,
-                            )
-
-                            def vis_feature(features1, path_name, dim, width):
-                                X = features1.view(dim, -1).T
-                                pca = PCA(n_components=3)
-                                X = X.cpu().numpy()
-                                X_reduced = pca.fit_transform(X)
-                                X_reduced = X_reduced.T.reshape(
-                                    3, width, width
-                                )  # Shape (3, 32, 32)
-                                # Convert to a format suitable for visualization
-                                X_reduced = X_reduced - X_reduced.min()
-                                X_reduced = X_reduced / X_reduced.max()
-                                X_reduced = (X_reduced * 255).astype(np.uint8)
-                                X_reduced = np.transpose(X_reduced, (1, 2, 0))
-                                featmap = Image.fromarray(X_reduced)
-                                featmap.save(path_name)
-
-                            print("features1 shape ", features1.shape)
-                            vis_feature(features1, f"sd_feature_{idx}.png", 384, 60)
-                            feats2d_net_dino = model(batch.rgb)
-                            print("feats2d_net_dino shape ", feats2d_net_dino.shape)
-                            vis_feature(
-                                feats2d_net_dino[idx],
-                                f"dino_feature_{idx}.png",
-                                768,
-                                32,
-                            )
-                            print("features1 shape ", features1.shape)
-                            idx += 1
-                            # features1_rescaled = features1
-                            features1_rescaled = torch.nn.functional.interpolate(
-                                features1,
-                                size=feats2d_net.shape[-2:],
-                                mode="bilinear",
-                                align_corners=False,
-                            ).squeeze(0)
-                            features1_rescaled_norm = (
-                                features1_rescaled
-                                / features1_rescaled.norm(dim=0, keepdim=True)
-                            )
-                            sd_feature_list.append(features1_rescaled_norm)
-
-                        sd_feature = torch.stack(sd_feature_list, dim=0)
-                        sd_feature = sd_feature / torch.norm(
-                            sd_feature, dim=1, keepdim=True
-                        )
-                        feats2d_net_dino = model(batch.rgb)
-                        sd_dino_combined = torch.concat(
-                            [sd_feature, feats2d_net_dino], dim=1
-                        )
-                        sd_dino_combined = sd_dino_combined / torch.norm(
-                            sd_dino_combined, dim=1, keepdim=True
-                        )
-                        print("sd dino combined shape", sd_dino_combined.shape)
-                        print("feats2d_net shape ", feats2d_net.shape)
-                        feats2d_net = torch.concat(
-                            [
-                                feats2d_net * torch.sqrt(torch.tensor(mixing_ratio)),
-                                sd_dino_combined
-                                * torch.sqrt(torch.tensor(1.0 - mixing_ratio)),
-                            ],
-                            dim=1,
-                        )
-                        feats2d_net = feats2d_net / torch.norm(
-                            feats2d_net, dim=1, keepdim=True
-                        )
-                    else:
-                        feats2d_net_dino = model(batch.rgb)
-
-                        feats2d_net_dino = feats2d_net_dino / torch.norm(
-                            feats2d_net_dino, dim=1, keepdim=True
-                        )
-                        feats2d_net = torch.concat(
-                            [
-                                feats2d_net * torch.sqrt(torch.tensor(mixing_ratio)),
-                                feats2d_net_dino
-                                * torch.sqrt(torch.tensor(1.0 - mixing_ratio)),
-                            ],
-                            dim=1,
-                        )
-                        feats2d_net = feats2d_net / torch.norm(
-                            feats2d_net, dim=1, keepdim=True
-                        )
-                        assert torch.allclose(
-                            torch.norm(feats2d_net, dim=1).cuda(),
-                            torch.ones(
-                                torch.norm(feats2d_net, dim=1).shape[0], 32, 32
-                            ).cuda(),
-                            atol=1e-6,
-                        ), "Vectors are not properly normalized"
-                        # print(' ')
+                    feats2d_net_dino = feats2d_net_dino / torch.norm(
+                        feats2d_net_dino, dim=1, keepdim=True
+                    )
+                    feats2d_net = torch.concat(
+                        [
+                            feats2d_net * torch.sqrt(torch.tensor(mixing_ratio)),
+                            feats2d_net_dino
+                            * torch.sqrt(torch.tensor(1.0 - mixing_ratio)),
+                        ],
+                        dim=1,
+                    )
+                    feats2d_net = feats2d_net / torch.norm(
+                        feats2d_net, dim=1, keepdim=True
+                    )
+                    assert torch.allclose(
+                        torch.norm(feats2d_net, dim=1).cuda(),
+                        torch.ones(
+                            torch.norm(feats2d_net, dim=1).shape[0], 32, 32
+                        ).cuda(),
+                        atol=1e-6,
+                    ), "Vectors are not properly normalized"
+                    # print(' ')
                 if self.flip_sfm:
                     feats2d_net = my_get_feature(
                         torch.flip(batch.rgb, dims=[3]), sph_mapper
