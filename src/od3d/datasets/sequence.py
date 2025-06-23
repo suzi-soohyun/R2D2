@@ -2127,7 +2127,7 @@ class OD3D_SequenceMeshMixin(
             f"Partial_Ratio_{100* self.partial_ratio}_Percent_start_frame_{self.start_frame_id}_use_sph_{self.use_sph}_use_flipped_feature_{self.use_flipped_feature}_use_sd_{self.use_sd}_flip_sfm_{self.flip_sfm}_mixing_ratio_{100 * self.mixing_ratio}",
             "mesh_feats_viewpoint.pt",
         )
-
+    
     @property
     def fpath_mesh_feats(self):
         return self.get_fpath_mesh_feats()
@@ -2135,7 +2135,7 @@ class OD3D_SequenceMeshMixin(
     @property
     def fpath_mesh_feats_viewpoint(self):
         return self.get_fpath_mesh_feats_viewpoint()
-
+    
     def read_mesh_feats(
         self, mesh_type=None, mesh_feats_type=None, cache=True, sph_type=None
     ):
@@ -2251,19 +2251,19 @@ class OD3D_SequenceMeshMixin(
         from od3d.SphericalMaps.get_feature import get_feature, my_get_feature
         from od3d.SphericalMaps.dino_mapper import DINOMapper, MyDINOMapper
 
-        if (
-            not override
-            and self.fpath_mesh_feats.exists()
-            and self.fpath_mesh_feats_viewpoint.exists()
-        ):
-            logger.info(f"mesh feats already exist at {self.fpath_mesh_feats}")
-            return
+        # if (
+        #     not override
+        #     and self.fpath_mesh_feats.exists()
+        #     and self.fpath_mesh_feats_viewpoint.exists()
+        # ):
+        #     logger.info(f"mesh feats already exist at {self.fpath_mesh_feats}")
+        #     return
 
-        if override and (
-            self.fpath_mesh_feats.exists() or self.fpath_mesh_feats_viewpoint.exists()
-        ):
-            logger.info(f"overriding mesh feats at {self.fpath_mesh_feats}")
-            # self.remove_mesh_feats_preprocess_dependent_files()
+        # if override and (
+        #     self.fpath_mesh_feats.exists() or self.fpath_mesh_feats_viewpoint.exists()
+        # ):
+        #     logger.info(f"overriding mesh feats at {self.fpath_mesh_feats}")
+        #     # self.remove_mesh_feats_preprocess_dependent_files()
 
         device = get_default_device()
 
@@ -2330,7 +2330,6 @@ class OD3D_SequenceMeshMixin(
         ] * meshes.verts.shape[0]
         vertices_count = len(meshes_verts_aggregated_features)
         print("vertices_count", vertices_count)
-        feats2d_net_list = []
         for batch in tqdm(iter(dataloader)):
             B = len(batch)  # 6, 3, 512, 512
             batch.to(device=device)
@@ -2465,7 +2464,6 @@ class OD3D_SequenceMeshMixin(
                         torch.flip(batch.rgb, dims=[3]), sph_mapper
                     )
 
-            feats2d_net_list.append(feats2d_net)
             H, W = feats2d_net.shape[-2:]
             xy = torch.stack(
                 torch.meshgrid(
