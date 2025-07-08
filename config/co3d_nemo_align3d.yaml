@@ -47,14 +47,15 @@ metrics:
   - metricA
   - metricB
 
-# mesh_feats_type: 'M_dinov2_vits14_frozen_base_no_norm_T_centerzoom512_R_acc'
-mesh_feats_type: 'M_dinov2_vitb14_frozen_base_T_centerzoom512_R_acc'
+mesh_feats_type: 'M_dinov2_vits14_frozen_base_no_norm_T_centerzoom512_R_acc'
+#mesh_feats_type: 'M_dinov2_vitb14_frozen_base_T_centerzoom512_R_acc'
 # M_dinov2_vitb14_frozen_base_no_norm_T_centerzoom512_R_acc
 # M_dinov2_vits14_frozen_base_no_norm_T_centerzoom512_R_acc
 # M_dino_vits8_frozen_base_no_norm_T_centerzoom512_R_acc
 #  'R_acc' # 'R_avg', 'R_avg_norm', 'R_min50'
 mesh_type: 'alpha500' # 'alphawrap500' 'alpha500' 'convex500', 'voxel500' 'poisson500', 'alpha500'
-mesh_feats_dist_reduce_type: 'min_avg' # 'pca32_', 'avg', 'min', 'min_avg'
+# mesh_feats_dist_reduce_type: 'min_avg' # 'pca32_', 'avg', 'min', 'min_avg'
+mesh_feats_dist_reduce_type: 'acc'
 aligned_name: '${mesh_type}_dinov2s' # 'alpha500_dinov2s_test' # 'alphawrap500_dinov2b' 'latest_50s_to_5s_sota' # _sota_ref_86_64
 
 method:

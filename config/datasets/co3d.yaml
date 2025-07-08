@@ -42,7 +42,8 @@ mesh_feats_dist_reduce_type: 'min_avg' # 'avg', 'min', 'min_avg'
 # tform_obj_type: 'label3d_cuboid' # 'label3d_cuboid' 'aligned_N_alpha500_dinov2b/r0', 'label3d_cuboid_meta'
 # use_sph: False
 mixing_ratio: 0.2
-use_sph: 'sph_excludes_co3d_with_dino'
+#use_sph: 'sph_excludes_co3d_with_dino'
+use_sph: 'save_raw_features'
 use_flipped_feature: False
 use_sd: False
 flip_sfm: False
