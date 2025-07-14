@@ -60,18 +60,15 @@ def pca(features: torch.Tensor, q: int, **kwargs) -> Tuple[torch.Tensor, torch.T
     return pca_features, mean, projection
 
 
-def mask_features(dino_features: torch.Tensor, sph_features: torch.Tensor, mask: torch.Tensor):
-    dino_feat_permuted = dino_features.permute(1, 2, 0)
-    sph_feat_permuted = sph_features.permute(1, 2, 0)
-
+def mask_features(features: torch.Tensor, mask: torch.Tensor):
+    features_permuted = features.permute(1, 2, 0)
     mask_permuted = mask.permute(1, 2, 0)
     mask_bool = mask_permuted.squeeze(-1) > 0.5
     
-    masked_dino_features = dino_feat_permuted[mask_bool]
-    masked_sph_features = sph_feat_permuted[mask_bool]
+    masked_features = features_permuted[mask_bool]
     mask_coords = mask_bool.nonzero(as_tuple=False)
     
-    return masked_dino_features, masked_sph_features, mask_coords
+    return masked_features, mask_coords
 
 
 def apply_mask_to_full_size(features: torch.Tensor, mask: torch.Tensor, image_size: Tuple[int, int] = (32, 32)):
@@ -116,3 +113,4 @@ def visualize_features(dino_feat: torch.Tensor, sph_feat: torch.Tensor, mask: to
 
     plt.tight_layout(pad=4.0)
     plt.savefig(f"{output_dir}/masked_features_{idx}.png")
+    print(f"save {output_dir}/masked_features_{idx}.png")

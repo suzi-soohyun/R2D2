@@ -1149,6 +1149,20 @@ class OD3D_SequenceDataset(OD3D_Dataset):
             # copied_sequence.flip_sfm = ( not sequence.flip_sfm)
             # copied_sequence.preprocess_mesh(override=override)
 
+    def preprocess_dino_pca_feats(self, override=False):
+        logger.info("preprocess dino pca feats...")
+
+        from od3d.datasets.sequence_meta import OD3D_SequenceMeta
+
+        for sequence_name_unique in OD3D_SequenceMeta.unroll_nested_metas(
+            self.dict_category_sequences_names,
+        ):
+            sequence = self.get_sequence_by_name_unique(
+                name_unique=sequence_name_unique,
+            )
+            sequence.preprocess_dino_pca_feats(override=override)
+
+
     def preprocess_mesh_feats(self, override=False):
         logger.info("preprocess mesh feats...")
 
@@ -1478,6 +1492,12 @@ class OD3D_SequenceDataset(OD3D_Dataset):
             if key == "mesh" and config_preprocess.mesh.get("enabled", False):
                 override = config_preprocess.mesh.get("override", False)
                 self.preprocess_mesh(override=override)
+            if key == "dino_pca_feats" and config_preprocess.dino_pca_feats.get(
+                "enabled",
+                False,
+            ):
+                override = config_preprocess.dino_pca_feats.get("override", False)
+                self.preprocess_dino_pca_feats(override=override)
             if key == "mesh_feats" and config_preprocess.mesh_feats.get(
                 "enabled",
                 False,
