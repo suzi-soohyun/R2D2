@@ -89,9 +89,6 @@ method:
       mesh:
         enabled: False
         override: False
-      dino_pca_feats:
-        enabled: False
-        override: False
       mesh_feats:
         enabled: False
         override: False

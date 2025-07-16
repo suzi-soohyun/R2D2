@@ -81,12 +81,14 @@ preprocess:
   mesh:
     enabled: False
     override: False
-  dino_pca_feats:
-    enabled: False
-    override: False
-  mesh_feats:
+  raw_feats:
     enabled: True
     override: False
+    load_dino: True
+  mesh_feats:
+    enabled: False
+    override: False
+    baseline: False
   mesh_feats_dist:
     enabled: False
     override: False

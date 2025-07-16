@@ -1,6 +1,6 @@
 import logging
 import warnings
-
+import os, sys
 logger = logging.getLogger(__name__)
 from torch.utils.data import Dataset
 from omegaconf import OmegaConf, DictConfig
@@ -1149,39 +1149,103 @@ class OD3D_SequenceDataset(OD3D_Dataset):
             # copied_sequence.flip_sfm = ( not sequence.flip_sfm)
             # copied_sequence.preprocess_mesh(override=override)
 
-    def preprocess_dino_pca_feats(self, override=False):
-        logger.info("preprocess dino pca feats...")
-
-        from od3d.datasets.sequence_meta import OD3D_SequenceMeta
-
-        for sequence_name_unique in OD3D_SequenceMeta.unroll_nested_metas(
-            self.dict_category_sequences_names,
-        ):
-            sequence = self.get_sequence_by_name_unique(
-                name_unique=sequence_name_unique,
+    def preprocess_dino_feats(self, override=False):
+        logger.info("preprocess raw dino feats...")
+        from od3d.datasets.pca_util import pca
+        batch_size = 6
+        dict_category_sequences_names = self.dict_category_sequences_names 
+        for category in dict_category_sequences_names.keys():
+            root_path = self.path_preprocess.joinpath(
+                "raw_feats",
+                category,
             )
-            sequence.preprocess_dino_pca_feats(override=override)
+            if not os.path.exists(root_path):
+                os.makedirs(root_path)
+            
+            total_dino_features_list = []
+            for sequence_name_unique in dict_category_sequences_names[category]:
+                sequence_name_unique = f"{category}/{sequence_name_unique}"
+                sequence = self.get_sequence_by_name_unique(
+                    name_unique=sequence_name_unique
+                )
+                print(sequence_name_unique)
+                seq_dino_feats = sequence.preprocess_dino_feats(batch_size=batch_size, override=override)
+                total_dino_features_list.append(seq_dino_feats)
+                del seq_dino_feats
+                torch.cuda.empty_cache()
+            total_dino_features_tensor = torch.cat(total_dino_features_list, dim=0)
+            n_feats = total_dino_features_tensor.shape[1]
+            q = int(n_feats / 2)
+            pca_dino_feat, mean, projection = pca(total_dino_features_tensor, q)
+            logger.info(f"pca dino feature shape: {pca_dino_feat.shape}")
+            logger.info(f"mean: {mean.shape}")
+            logger.info(f"projection: {projection.shape}")
+
+            torch.save(pca_dino_feat, f=os.path.join(root_path, "dino_pca_feats.pt"))
+            logger.info(f"save dino pca feats at {root_path}/dino_pca_feats.pt")
+            
+            torch.save(mean, f=os.path.join(root_path, "dino_pca_mean.pt"))
+            logger.info(f"save dino pca mean at {root_path}/dino_pca_mean.pt")
+            
+            torch.save(projection, f=os.path.join(root_path, "dino_pca_proj.pt"))
+            logger.info(f"save dino pca proj at {root_path}/dino_pca_proj.pt")
+            
+            del total_dino_features_tensor, pca_dino_feat, mean, projection
+            torch.cuda.empty_cache()
+                
+    def preprocess_raw_feats(self, override=False):
+        logger.info("preprocess raw features for dino and sph feats...")
+        from od3d.datasets.pca_util import pca
+        batch_size = 6
+        dict_category_sequences_names = self.dict_category_sequences_names 
+        for category in dict_category_sequences_names.keys():
+            root_path = self.path_preprocess.joinpath(
+                "raw_feats",
+                category,
+            )
+            
+            dino_feats = torch.load(f"{root_path}/dino_pca_feats.pt")
+            dino_mean = torch.load(f"{root_path}/dino_pca_mean.pt")
+            dino_proj = torch.load(f"{root_path}/dino_pca_proj.pt")
+            
+            logger.info(f"dino feature shape: {dino_feats.shape}")
+            logger.info(f"dino mean shape: {dino_mean.shape}")
+            logger.info(f"dino mean shape: {dino_proj.shape}")
+
+            s_pixel = 0
+            for sequence_name_unique in dict_category_sequences_names[category]:
+                sequence_name_unique = f"{category}/{sequence_name_unique}"
+                sequence = self.get_sequence_by_name_unique(
+                    name_unique=sequence_name_unique
+                )
+                print(sequence_name_unique)
+                visualization = False
+                e_pixel = sequence.preprocess_combine_feats(root_path, dino_feats, dino_mean, dino_proj, 
+                                             s_pixel, batch_size, visualization=visualization, override=override)
+                s_pixel = e_pixel
+                
+            del dino_feats, dino_mean, dino_proj
+            torch.cuda.empty_cache() 
 
 
-    def preprocess_mesh_feats(self, override=False):
+    def preprocess_mesh_feats(self, override=False, baseline=False):
         logger.info("preprocess mesh feats...")
+        batch_size = 6
+        
+        dict_category_sequences_names = self.dict_category_sequences_names 
+        for category in dict_category_sequences_names.keys():
+            for sequence_name_unique in dict_category_sequences_names[category]:
+                sequence_name_unique = category + "/" + sequence_name_unique
+                
+                sequence = self.get_sequence_by_name_unique(
+                    name_unique=sequence_name_unique,
+                )
 
-        from od3d.datasets.sequence_meta import OD3D_SequenceMeta
+                if baseline:
+                    sequence.preprocess_mesh_feats_baseline(batch_size, override=override)
+                else:
+                    sequence.preprocess_mesh_feats(batch_size, override=override)
 
-        for sequence_name_unique in OD3D_SequenceMeta.unroll_nested_metas(
-            self.dict_category_sequences_names,
-        ):
-            sequence = self.get_sequence_by_name_unique(
-                name_unique=sequence_name_unique,
-            )
-            # category = sequence.category
-            # sequences_annotated = self.dict_nested_frames_annotated[category].keys()
-            # sequence.sequence_annotated = sequences_annotated
-            sequence.preprocess_mesh_feats(override=override)
-
-            # copied_sequence = deepcopy(sequence)
-            # copied_sequence.flip_sfm = ( not sequence.flip_sfm)
-            # copied_sequence.preprocess_mesh_feats(override=override)
 
     def preprocess_mesh_feats_clustering(self, override=False):
         logger.info("Preprocess Mesh Feats Clustering...")
@@ -1492,18 +1556,22 @@ class OD3D_SequenceDataset(OD3D_Dataset):
             if key == "mesh" and config_preprocess.mesh.get("enabled", False):
                 override = config_preprocess.mesh.get("override", False)
                 self.preprocess_mesh(override=override)
-            if key == "dino_pca_feats" and config_preprocess.dino_pca_feats.get(
+            if key == "raw_feats" and config_preprocess.raw_feats.get(
                 "enabled",
                 False,
             ):
-                override = config_preprocess.dino_pca_feats.get("override", False)
-                self.preprocess_dino_pca_feats(override=override)
+                override = config_preprocess.raw_feats.get("override", False)
+                load_dino = config_preprocess.raw_feats.get("load_dino", False)
+                if not load_dino:
+                    self.preprocess_dino_feats(override=override)
+                self.preprocess_raw_feats(override=override)
             if key == "mesh_feats" and config_preprocess.mesh_feats.get(
                 "enabled",
                 False,
             ):
                 override = config_preprocess.mesh_feats.get("override", False)
-                self.preprocess_mesh_feats(override=override)
+                baseline = config_preprocess.mesh_feats.get("baseline", False)
+                self.preprocess_mesh_feats(override=override, baseline=baseline)
             if (
                 key == "mesh_feats_clustering"
                 and config_preprocess.mesh_feats_clustering.get(

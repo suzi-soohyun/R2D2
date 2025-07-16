@@ -52,7 +52,6 @@ from od3d.datasets.object import OD3D_TFROM_OBJ_TYPES
 import pytorch3d
 from od3d.cv.reconstruction import camera_alignment
 import random
-import os
 import trimesh
 from PIL import Image
 from od3d.cv.reconstruction.backproject_co3d import (
@@ -64,7 +63,7 @@ from od3d.cv.reconstruction.backproject_co3d import (
 )
 import time
 import torch.nn.functional as F
-import sys
+import os, sys
 
 @dataclass
 class OD3D_Sequence(OD3D_FrameModalitiesMixin, OD3D_Object, Dataset):
@@ -2239,7 +2238,7 @@ class OD3D_SequenceMeshMixin(
         else:
             return mesh_feats_viewpoint.clone()
 
-    def preprocess_dino_pca_feats(self, override=False):
+    def preprocess_dino_feats(self, batch_size, override=False):
         from od3d.models.model import OD3D_Model
         from od3d.cv.transforms.transform import OD3D_Transform
         from od3d.cv.transforms.sequential import SequentialTransform
@@ -2267,75 +2266,175 @@ class OD3D_SequenceMeshMixin(
             [OD3D_Transform.create_by_name(transform_name), model.transform],
         )
         dataloader = self.get_dataloader_partial(
-            batch_size=6,
+            batch_size=batch_size,
             shuffle=False,
             transform=transform,
-        )  # 11 GB
+        )
         
-        idx = 0
         total_dino_features_list = []
-        
         for batch in tqdm(iter(dataloader)):
-            B = len(batch)  # 6, 3, 512, 512
+            B = len(batch)
             batch.to(device=device)
             mask = (batch.mask > 0.5).float()
             imgs = batch.rgb
-            H, W = imgs.shape[2:]
-            
             logger.info(f"rgb image shape {imgs.shape}")
             logger.info(f"mask image shape {mask.shape}")
             
             dino_feat = model(imgs)
-            # TODO: apply PCA to dino_feat
-            B, C_dino, H_dino, W_dino = dino_feat.shape
+            B, C_dino, H, W = dino_feat.shape
             logger.info(f"dino feature map shape {dino_feat.shape}")
-            mask_resized = F.interpolate(mask, size=(H_dino, W_dino), mode='nearest')
+            mask_resized = F.interpolate(mask, size=(H, W), mode='nearest')
             dino_features_list = []
                 
-            from od3d.datasets.pca_util import mask_features, pca,  apply_mask_to_full_size
-            import matplotlib.pyplot as plt
+            from od3d.datasets.pca_util import mask_features
             for b in range(B):
-                masked_dino_features, mask_coords = mask_features(dino_feat[b], mask_resized[b])
-                logger.info(f"mask_coords: {mask_coords.shape}")
+                masked_dino_features, _ = mask_features(dino_feat[b], mask_resized[b])
                 logger.info(f"masked dino features: {masked_dino_features.shape}")
-        
                 dino_features_list.append(masked_dino_features)
-                idx += 1
-            
             total_dino_features_list.append(torch.cat(dino_features_list, dim=0))
             
         total_dino_features_tensor = torch.cat(total_dino_features_list)
         logger.info(f"concatenated dino features shape: {total_dino_features_tensor.shape}")
-        
-        n_feats = total_dino_features_tensor.shape[1]
-        q = int(n_feats / 8)
-        pca_dino_feat, mean, projection = pca(total_dino_features_tensor, q)
-        logger.info(f"mean: {mean.shape}")
-        logger.info(f"projection: {projection.shape}")
-        logger.info(f"pca dino feature shape: {pca_dino_feat.shape}")
-        
-        root_path = self.path_preprocess.joinpath(
-            "raw_feats",
-            self.name_unique,
+        return total_dino_features_tensor
+
+
+    def preprocess_combine_feats(self, root_path, dino_feats, dino_mean, dino_proj, s_pixel, batch_size, visualization, override=False):
+        from od3d.models.model import OD3D_Model
+        from od3d.cv.transforms.transform import OD3D_Transform
+        from od3d.cv.transforms.sequential import SequentialTransform
+        from tqdm import tqdm
+        import re
+        from od3d.SphericalMaps.get_feature import my_get_feature
+        from od3d.SphericalMaps.dino_mapper import MyDINOMapper
+        from od3d.datasets.pca_util import mask_features, visualize_features, apply_mask_to_full_size
+
+        device = get_default_device()
+ 
+        # e.g.: 'M_dinov2_frozen_base_T_centerzoom512_R_acc'
+        match = re.match(
+            r"M_([a-z0-9_]+)_T_([a-z0-9_]+)_R_([a-z0-9_]+)",
+            self.mesh_feats_type,
+            re.I,
         )
-
-        if not os.path.exists(root_path):
-            os.makedirs(root_path)
-
-        path_dino_feats = os.path.join(root_path, "dino_pca_feats.pt")
-        torch.save(total_dino_features_tensor, f=path_dino_feats)
-        logger.info(f"save dino pca feats at {path_dino_feats}")
+        if match and len(match.groups()) == 3:
+            model_name, transform_name, reduce_type = match.groups()
+        else:
+            msg = f"could not retrieve model, transform, and reduce type from mesh feats type {self.mesh_feats_type}"
+            raise Exception(msg)
         
-        path_dino_mean = os.path.join(root_path, "dino_pca_mean.pt")
-        torch.save(mean, f=path_dino_mean)
-        logger.info(f"save dino pca mean at {path_dino_mean}")
+        if not self.use_sph:
+            logger.info("Not using sph features")
+            return False
+      
+        model = OD3D_Model.create_by_name(model_name)
+        model.cuda()
+        model.eval()
+            
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if self.use_sph == "save_raw_features":
+            sph_mapper = MyDINOMapper(
+                backbone="dinov2_vitb14_frozen_base_no_norm", n_cats=114
+            )
+            sph_mapper.load_checkpoint(
+                f'{root}/SphericalMaps/exps/olaf/exp_002_in3d_wo_sym_and_co3d_200.pth',
+                device=device,
+            )
+            sph_mapper.to(device)
+        sph_mapper = sph_mapper.to(device)
         
-        path_dino_proj = os.path.join(root_path, "dino_pca_proj.pt")
-        torch.save(projection, f=path_dino_proj)
-        logger.info(f"save dino pca proj at {path_dino_proj}")
+        transform = SequentialTransform(
+            [OD3D_Transform.create_by_name(transform_name), model.transform],
+        )
+        dataloader = self.get_dataloader_partial(
+            batch_size=batch_size,
+            shuffle=False,
+            transform=transform,
+        )
+        e_pixel = 0
+        idx = 0
+        total_dino_features_list = []
+        total_sph_features_list = []
+        for batch in tqdm(iter(dataloader)):
+            B = len(batch)
+            batch.to(device=device)
+            mask = (batch.mask > 0.5).float()
+            imgs = batch.rgb
+            logger.info(f"rgb image shape {imgs.shape}")
+            logger.info(f"mask image shape {mask.shape}")
+
+            sph_feats = my_get_feature(imgs, sph_mapper)
+            logger.info(f"spherical feature map shape {sph_feats.shape}")
+            B, C, H, W = sph_feats.shape
+            mask_resized = F.interpolate(mask, size=(H, W), mode='nearest')
+            dino_features_list, sph_features_list = [], []              
+            
+            for b in range(B):
+                masked_sph_features, mask_coords = mask_features(sph_feats[b], mask_resized[b])
+                n_pixel = torch.count_nonzero(mask_resized[b]).item()
+                e_pixel = s_pixel + n_pixel
+                masked_dino_features = dino_feats[s_pixel:e_pixel,:]
+                logger.info(f"start: {s_pixel}, end: {e_pixel}, n_pixel: {n_pixel}")
+                s_pixel = e_pixel
+                
+                logger.info(f"masked dino features: {masked_dino_features.shape}")
+                logger.info(f"masked sph features: {masked_sph_features.shape}")
+                                
+                img_root_path = self.path_preprocess.joinpath(
+                    "feats_img",
+                    self.name_unique,
+                )
+                if not os.path.exists(img_root_path):
+                    os.makedirs(img_root_path)
+                
+                if visualization:
+                    reconstructed_dino = torch.einsum("ND,CD->NC", masked_dino_features, dino_proj) + dino_mean
+                    visualize_features(reconstructed_dino, masked_sph_features, mask_coords, (H, W), idx, output_dir=img_root_path)
+                    del reconstructed_dino
+                    torch.cuda.empty_cache()
+                    idx += 1
+                
+                full_dino_feat = apply_mask_to_full_size(masked_dino_features, mask_resized[b], (H, W))
+                full_sph_feat = apply_mask_to_full_size(masked_sph_features, mask_resized[b], (H, W))
+                
+                dino_features_list.append(full_dino_feat)
+                sph_features_list.append(full_sph_feat)
+                del full_dino_feat, full_sph_feat
+                torch.cuda.empty_cache()
+                
+            total_dino_features_list.append(torch.cat(dino_features_list, dim=0))
+            total_sph_features_list.append(torch.cat(sph_features_list, dim=0))
+            del dino_features_list, sph_features_list
+            torch.cuda.empty_cache()
+            
+        total_dino_features_tensor = torch.cat(total_dino_features_list)
+        total_sph_features_tensor = torch.cat(total_sph_features_list)
+        del total_dino_features_list, total_sph_features_list
+        torch.cuda.empty_cache()
+
+        logger.info(f"concatenated dino features shape: {total_dino_features_tensor.shape}")
+        logger.info(f"concatenated sph features shape: {total_sph_features_tensor.shape}")
+
+        feats2d_net = torch.concat(
+            [
+                total_sph_features_tensor,
+                total_dino_features_tensor,
+            ],
+            dim=-1,
+        ).permute(0, 3, 1, 2)
+        
+        logger.info(f"concatenated features shape: {feats2d_net.shape}")
+
+        path_raw_feats = os.path.join(root_path, "feats2d_net.pt")
+        torch.save(feats2d_net, f=path_raw_feats)
+        logger.info(f"save feats2d_net at {path_raw_feats}")
+        
+        del total_dino_features_tensor, total_sph_features_tensor, feats2d_net
+        torch.cuda.empty_cache()
+        return e_pixel
 
 
-    def preprocess_mesh_feats(self, override=False):
+    def preprocess_mesh_feats(self, batch_size, override=False):
+        # TODO: check if this works
         from od3d.models.model import OD3D_Model
         from od3d.cv.transforms.transform import OD3D_Transform
         from od3d.cv.transforms.sequential import SequentialTransform
@@ -2344,8 +2443,6 @@ class OD3D_SequenceMeshMixin(
         import re
         from od3d.cv.geometry.objects3d.meshes import Meshes
         from od3d.cv.visual.sample import sample_pxl2d_pts
-        from od3d.SphericalMaps.get_feature import get_feature, my_get_feature
-        from od3d.SphericalMaps.dino_mapper import DINOMapper, MyDINOMapper
 
         # if (
         #     not override
@@ -2375,19 +2472,9 @@ class OD3D_SequenceMeshMixin(
             msg = f"could not retrieve model, transform, and reduce type from mesh feats type {self.mesh_feats_type}"
             raise Exception(msg)
         
-        # TODO: load pca parameters for this CATEGORY
-        root_dino_path =  self.path_preprocess.joinpath("raw_feats", self.name_unique)
-                    
-        dino_mean = torch.load(f"{root_dino_path}/dino_pca_mean.pt")
-        dino_proj = torch.load(f"{root_dino_path}/dino_pca_proj.pt")
-        logger.info(f"mean: {dino_mean.shape}")
-        logger.info(f"projection: {dino_proj.shape}")
-        
-        dino_feat = torch.load(f"{root_dino_path}/dino_pca_feats.pt")
-        
-        logger.info(f"pca dino feature shape: {dino_feat.shape}")
-        #dino_feat = torch.einsum("ij,bjhw->bihw", dino_proj, (dino_feat - dino_mean))
-        #logger.info(f"pca dino feature shape: {dino_feat.shape}")         
+        root_path =  self.path_preprocess.joinpath("raw_feats", self.name_unique)       
+        feats2d_net = torch.load(f"{root_path}/feats2d_net.pt")
+        logger.info(f"feats2d_net shape: {feats2d_net.shape}")        
 
         # if self.mesh_feats_type == FEATURE_TYPES.
         model = OD3D_Model.create_by_name(model_name)
@@ -2397,7 +2484,254 @@ class OD3D_SequenceMeshMixin(
             [OD3D_Transform.create_by_name(transform_name), model.transform],
         )
         dataloader = self.get_dataloader_partial(
-            batch_size=6,
+            batch_size=batch_size,
+            shuffle=False,
+            transform=transform,
+        )  # 11 GB
+
+        down_sample_rate = model.downsample_rate
+        feature_dim = feats2d_net.shape[1]
+        self.mesh = None
+        mesh = (
+            self.get_mesh()
+        )  # already transfered the mesh coordiniate into ref mesh coordinaate system
+        if mesh is None:
+            return
+        meshes = Meshes.read_from_meshes([mesh], device=device)
+
+        ## DEBUG BLOCK START
+        # cams_tform4x4_world, cams_intr4x4, cams_imgs = self.get_cams(CAM_TFORM_OBJ_SOURCES.PCL)
+        # show_scene(meshes=meshes, cams_tform4x4_world=cams_tform4x4_world, cams_intr4x4=cams_intr4x4, cams_imgs=cams_imgs )
+        ## DEBUG BLOCK END
+
+        meshes_verts_aggregated_features = [
+            torch.zeros((0, feature_dim), device="cpu"),
+        ] * meshes.verts.shape[0]
+
+        meshes_verts_aggregated_features_test = [
+            torch.zeros((0, feature_dim), device="cpu"),
+        ] * meshes.verts.shape[0]
+
+        meshes_verts_aggregated_viewpoints = [
+            torch.zeros((0, 3), device="cpu"),
+        ] * meshes.verts.shape[0]
+        vertices_count = len(meshes_verts_aggregated_features)
+        print("vertices_count", vertices_count)
+
+        for batch in tqdm(iter(dataloader)):
+            # INFO: not all vertices of the mesh are visible in all frames due to occlusions or the image not caputring that
+            # part of the object. If a vertex is not visible in an image, the image should not contribute neither to the mean, 
+            # nor the covariance calculation. 
+            # TODO: treating the speritcal and DINO features seperately.
+
+            B = len(batch)
+            batch.to(device=device)          
+            batch.cam_tform4x4_obj = batch.cam_tform4x4_obj.detach()
+
+            vts2d, vts2d_mask = meshes.verts2d(
+                cams_intr4x4=batch.cam_intr4x4,
+                cams_tform4x4_obj=batch.cam_tform4x4_obj,
+                imgs_sizes=batch.size,
+                mesh_ids=[0] * B,
+                down_sample_rate=down_sample_rate,
+            )
+           
+            from od3d.cv.visual.resize import resize
+            
+            rgb_mask_low_res = resize(
+                batch.rgb_mask,
+                scale_factor=1.0 / down_sample_rate,
+            )
+            
+            vts2d_mask *= sample_pxl2d_pts(rgb_mask_low_res, pxl2d=vts2d)[:, :, 0]
+         
+            batch_cam_tform4x4_obj_raw = batch.cam_tform4x4_obj
+            tform_obj = self.get_tform_obj(device=device)
+            if tform_obj is not None:
+                batch_cam_tform4x4_obj_raw = tform4x4_broadcast(
+                    batch_cam_tform4x4_obj_raw,
+                    tform_obj[None,],
+                )
+
+            viewpoints3d = (inv_tform4x4(batch_cam_tform4x4_obj_raw)[:, :3, 3])[
+                :,
+                None,
+            ].expand(*vts2d_mask.shape, 3)
+            viewpoints3d = viewpoints3d[vts2d_mask]
+            
+            N = vts2d.shape[1]
+            noise2d = torch.ones(size=(vts2d.shape[0], 0, 2), device=device)
+
+            # B x F+N x C
+            net_feats = sample_pxl2d_pts(
+                feats2d_net,
+                pxl2d=torch.cat([vts2d, noise2d], dim=1),
+            )
+            
+            # visualize points sampled
+            # from od3d.cv.visual.show import show_img
+            # from od3d.cv.visual.draw import draw_pixels
+            # img = batch.rgb[0].clone()
+            # img = draw_pixels(img, vts2d[0] * down_sample_rate, colors=meshes.get_verts_ncds_with_mesh_id(mesh_id=0))
+            # show_img(img)
+
+            C = net_feats.shape[2]
+            # args: X: Bx3xHxW, keypoint_positions: BxNx2, obj_mask: BxHxW ensures that noise is sampled outside of object mask
+            # returns: BxF+NxC
+
+            # net_feats = net_feats[:, :].reshape(-1, net_feats.shape[-1])
+            batch_vts_ids = meshes.get_verts_and_noise_ids_stacked(
+                [0] * B,
+                count_noise_ids=0,
+            )
+
+            # N,
+            batch_vts_ids = torch.cat(
+                [batch_vts_ids[:, :N][vts2d_mask], batch_vts_ids[:, N:].reshape(-1)],
+                dim=0,
+            )
+
+            # N x C
+            net_feats = torch.cat(
+                [net_feats[:, :N][vts2d_mask], net_feats[:, N:].reshape(-1, C)],
+                dim=0,
+            )
+
+            
+            mesh_root_path = self.path_preprocess.joinpath(
+                "raw_mesh_feats",
+                self.name_unique,
+            )
+            if not os.path.exists(mesh_root_path):
+                os.makedirs(mesh_root_path)
+            
+            
+            for b, vertex_id in enumerate(batch_vts_ids):
+                #logger.info(f"net_feats[b : b + 1]: {net_feats[b : b + 1].shape}")
+                #logger.info(f"meshes_verts_aggregated_features[vertex_id]: {meshes_verts_aggregated_features[vertex_id].shape}")
+                
+                meshes_verts_aggregated_features[vertex_id] = torch.cat(
+                    [
+                        net_feats[b : b + 1].detach().cpu(),
+                        meshes_verts_aggregated_features[vertex_id].detach().cpu(),
+                    ],
+                    dim=0,
+                )
+                meshes_verts_aggregated_viewpoints[vertex_id] = torch.cat(
+                    [
+                        viewpoints3d[b : b + 1].detach().cpu(),
+                        meshes_verts_aggregated_viewpoints[vertex_id].detach().cpu(),
+                    ],
+                    dim=0,
+                )
+                
+        logger.info(f"type of meshes_verts_aggregated_features: {type(meshes_verts_aggregated_features)}")
+        logger.info(f"type of meshes_verts_aggregated_viewpoints: {type(meshes_verts_aggregated_viewpoints)}")
+        
+        logger.info(f"save mesh feats at {self.fpath_mesh_feats}")
+        logger.info(f"save mesh feats viewpoint at {self.fpath_mesh_feats_viewpoint}")
+        
+        if reduce_type == "acc":
+            if not self.fpath_mesh_feats.parent.exists():
+                self.fpath_mesh_feats.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(meshes_verts_aggregated_features, f=f"{mesh_root_path}/mesh_feats.pt")
+            torch.save(
+                meshes_verts_aggregated_viewpoints,
+                f=f"{mesh_root_path}/mesh_feats_viewpoint.pt",
+            )
+            # meshes_verts_agdgregated_features.clear()
+            avg_path = self.get_fpath_mesh_feats(
+                mesh_feats_type="M_dinov2_vitb14_frozen_base_T_centerzoom512_R_avg"
+            )
+            if not avg_path.parent.exists():
+                avg_path.parent.mkdir(parents=True, exist_ok=True)
+            meshes_verts_aggregated_features_avg = torch.stack(
+                [
+                    agg_feats.mean(dim=0)
+                    for agg_feats in meshes_verts_aggregated_features
+                ],
+                dim=0,
+            )
+            
+            ## save mean
+            torch.save(
+                meshes_verts_aggregated_features_avg.detach().cpu(),
+                f=avg_path,
+            )
+            del meshes_verts_aggregated_features_avg
+
+            # TODO: save covariance matrix
+            # if not cov_path.parent.exists():
+            #     cov_path.parent.mkdir(parents=True, exist_ok=True)
+            # mesh_verts_aggregated_features_cov = torch.stack(
+            #     [
+            #         torch.linalg.cov(agg_feats, dim=0)
+            #         for agg_feats in meshes_verts_aggregated_features
+            #     ],
+            #     dim=0
+            # )
+            # torch.save(
+            #     mesh_verts_aggregated_features_cov, f=cov_path
+            # )
+            # del mesh_verts_aggregated_features_cov
+
+        else:
+            logger.warning(f"Unknown mesh feature reduce_type {reduce_type}.")
+
+        del dataloader
+        del model
+        torch.cuda.empty_cache()
+
+
+    def preprocess_mesh_feats_baseline(self, batch_size, override=False):
+        from od3d.models.model import OD3D_Model
+        from od3d.cv.transforms.transform import OD3D_Transform
+        from od3d.cv.transforms.sequential import SequentialTransform
+        from od3d.cv.geometry.transform import inv_tform4x4
+        from tqdm import tqdm
+        import re
+        from od3d.cv.geometry.objects3d.meshes import Meshes
+        from od3d.cv.visual.sample import sample_pxl2d_pts
+        from od3d.SphericalMaps.get_feature import get_feature, my_get_feature
+        from od3d.SphericalMaps.dino_mapper import DINOMapper, MyDINOMapper
+
+        if (
+            not override
+            and self.fpath_mesh_feats.exists()
+            and self.fpath_mesh_feats_viewpoint.exists()
+        ):
+            logger.info(f"mesh feats already exist at {self.fpath_mesh_feats}")
+            return
+
+        if override and (
+            self.fpath_mesh_feats.exists() or self.fpath_mesh_feats_viewpoint.exists()
+        ):
+            logger.info(f"overriding mesh feats at {self.fpath_mesh_feats}")
+            # self.remove_mesh_feats_preprocess_dependent_files()
+
+        device = get_default_device()
+
+        # e.g.: 'M_dinov2_frozen_base_T_centerzoom512_R_acc'
+        match = re.match(
+            r"M_([a-z0-9_]+)_T_([a-z0-9_]+)_R_([a-z0-9_]+)",
+            self.mesh_feats_type,
+            re.I,
+        )
+        if match and len(match.groups()) == 3:
+            model_name, transform_name, reduce_type = match.groups()
+        else:
+            msg = f"could not retrieve model, transform, and reduce type from mesh feats type {self.mesh_feats_type}"
+            raise Exception(msg)
+ 
+        # if self.mesh_feats_type == FEATURE_TYPES.
+        model = OD3D_Model.create_by_name(model_name)
+        model.cuda()
+        model.eval()
+        transform = SequentialTransform(
+            [OD3D_Transform.create_by_name(transform_name), model.transform],
+        )
+        dataloader = self.get_dataloader_partial(
+            batch_size=batch_size,
             shuffle=False,
             transform=transform,
         )  # 11 GB
@@ -2409,9 +2743,6 @@ class OD3D_SequenceMeshMixin(
                 feature_dim = 3 + model.out_dim
                 if self.use_sd:
                     feature_dim += 384
-            if self.use_sph == "save_raw_features":
-                pca_dim = dino_feat.shape[1]
-                feature_dim = 3 + pca_dim
         else:
             feature_dim = model.out_dim
             if self.use_sd: 
@@ -2443,21 +2774,10 @@ class OD3D_SequenceMeshMixin(
         ] * meshes.verts.shape[0]
         vertices_count = len(meshes_verts_aggregated_features)
         print("vertices_count", vertices_count)
-        
-       
-        s_pixel, e_pixel = 0, 0
-        idx = 0
+   
         for batch in tqdm(iter(dataloader)):
             B = len(batch)  # 6, 3, 512, 512
-            batch.to(device=device)
-            mask = (batch.mask > 0.5).float()
-            imgs = batch.rgb
-            H, W = imgs.shape[2:]
-            
-            logger.info(f"rgb image shape {imgs.shape}")
-            logger.info(f"mask image shape {mask.shape}")
-            
-            
+            batch.to(device=device)            
             batch.cam_tform4x4_obj = batch.cam_tform4x4_obj.detach()
 
             vts2d, vts2d_mask = meshes.verts2d(
@@ -2541,7 +2861,7 @@ class OD3D_SequenceMeshMixin(
                         device=device,
                     )
                     sph_mapper.to(device)
-                if self.use_sph == "sph_excludes_co3d_with_dino" or self.use_sph == "save_raw_features":
+                if self.use_sph == "sph_excludes_co3d_with_dino":
                     sph_mapper = MyDINOMapper(
                         backbone="dinov2_vitb14_frozen_base_no_norm", n_cats=114
                     )
@@ -2554,317 +2874,240 @@ class OD3D_SequenceMeshMixin(
                 sph_mapper = sph_mapper.to(device)
                 from od3d.SphericalMaps.sd_dino.utils.utils_correspondence import resize
                
-                if self.use_sph == "save_raw_features":
-                    
-                    # TODO: apply PCA to dino_feat
-                    #dino_feat = torch.einsum("ij,bjhw->bihw", dino_proj, (dino_feat - dino_mean))
-                    
-                    feats2d_net = my_get_feature(imgs, sph_mapper)
-                    logger.info(f"spherical feature map shape {feats2d_net.shape}")
-                    B, C_sph, H, W = feats2d_net.shape
-                    mask_resized = F.interpolate(mask, size=(H, W), mode='nearest')
-                    
-                    dino_features_list = []
-                    sph_features_list = []
-                   
-                    from od3d.datasets.pca_util import mask_features, visualize_features, apply_mask_to_full_size
-                    import matplotlib.pyplot as plt
-                    for b in range(B):
-                        
-                        masked_sph_features, mask_coords = mask_features(feats2d_net[b], mask_resized[b])
-                        n_pixel = torch.count_nonzero(mask_resized[b]).item()
-                        e_pixel = s_pixel + n_pixel
-                                  
-                        pca_dino_feat = dino_feat[s_pixel:e_pixel,:]
-                        logger.info(f"start: {s_pixel}, end: {e_pixel}, n_pixel: {n_pixel}")
-                        
-                        s_pixel = e_pixel
-                                          
-                        logger.info(f"mask_coords: {mask_coords.shape}")
-                        logger.info(f"masked dino features: {pca_dino_feat.shape}")
-                        logger.info(f"masked sph features: {masked_sph_features.shape}")
-                       
-                        #root_mask_path = "/home/stud/jiso/ot"
-                        root_mask_path = self.path_preprocess.joinpath(
-                            "mask_feats",
-                            self.name_unique,
-                        )
+                if self.use_sph == "sph_excludes_co3d_with_dino":
+                    feats2d_net = my_get_feature(batch.rgb, sph_mapper)
+                    feats2d_net = feats2d_net / torch.norm(feats2d_net, dim=1, keepdim=True)
+                
+                    mixing_ratio = self.mixing_ratio
+                    feats2d_net_dino = model(batch.rgb)
 
-
-                        visualize_features(pca_dino_feat, masked_sph_features, mask_coords, (H, W), idx, output_dir=root_mask_path)
-                        #visualize_features(dino_feat[b, :3, ...], masked_sph_features, mask_coords, (H, W), idx, output_dir=root_mask_path)
-                        
-                        #full_dino_feat = apply_mask_to_full_size(pca_dino_feat, mask_resized[b], (H, W))
-                        full_sph_feat = apply_mask_to_full_size(masked_sph_features, mask_resized[b], (H, W))
-                        
-                        #dino_features_list.append(full_dino_feat)
-                        sph_features_list.append(full_sph_feat)
-                        idx += 1
-                    # import sys
-                    # sys.exit()
-                    
-                    #dino_features_tensor = torch.cat(dino_features_list, dim=0) 
-                    sph_features_tensor = torch.cat(sph_features_list, dim=0)
-
-                    #logger.info(f"concatenated dino features shape: {dino_features_tensor.shape}")
-                    logger.info(f"concatenated sph features shape: {sph_features_tensor.shape}")
-
+                    feats2d_net_dino = feats2d_net_dino / torch.norm(
+                        feats2d_net_dino, dim=1, keepdim=True
+                    )
                     feats2d_net = torch.concat(
                         [
-                            sph_features_tensor,
-                            #dino_features_tensor,
+                            feats2d_net * torch.sqrt(torch.tensor(mixing_ratio)),
+                            feats2d_net_dino
+                            * torch.sqrt(torch.tensor(1.0 - mixing_ratio)),
                         ],
-                        dim=-1,
-                    ).permute(0, 3, 1, 2)
-                    
-                    logger.info(f"concatenated features shape: {feats2d_net.shape}")
-            
-                    root_path = self.path_preprocess.joinpath(
-                        "raw_feats",
-                        self.name_unique,
+                        dim=1,
+                    )
+                    feats2d_net = feats2d_net / torch.norm(
+                        feats2d_net, dim=1, keepdim=True
+                    )
+                    assert torch.allclose(
+                        torch.norm(feats2d_net, dim=1).cuda(),
+                        torch.ones(
+                            torch.norm(feats2d_net, dim=1).shape[0], 32, 32
+                        ).cuda(),
+                        atol=1e-6,
+                    ), "Vectors are not properly normalized"
+                    # print(' ')
+                if self.flip_sfm:
+                    feats2d_net = my_get_feature(
+                        torch.flip(batch.rgb, dims=[3]), sph_mapper
                     )
 
-                    if not os.path.exists(root_path):
-                        os.makedirs(root_path)
+            noise2d = torch.ones(size=(vts2d.shape[0], 0, 2), device=device)
 
-                    path_raw_feats = os.path.join(root_path, "raw_feats.pt")
-                    torch.save(feats2d_net, f=path_raw_feats)
-                    logger.info(f"save raw sph feats at {path_raw_feats}")
-     
-        #         if self.use_sph == "sph_excludes_co3d_with_dino":
-        #             feats2d_net = my_get_feature(batch.rgb, sph_mapper)
-        #             feats2d_net = feats2d_net / torch.norm(feats2d_net, dim=1, keepdim=True)
+            # B x F+N x C
+            net_feats = sample_pxl2d_pts(
+                feats2d_net,
+                pxl2d=torch.cat([vts2d, noise2d], dim=1),
+            )
+            
+            # visualize points sampled
+            # from od3d.cv.visual.show import show_img
+            # from od3d.cv.visual.draw import draw_pixels
+            # img = batch.rgb[0].clone()
+            # img = draw_pixels(img, vts2d[0] * down_sample_rate, colors=meshes.get_verts_ncds_with_mesh_id(mesh_id=0))
+            # show_img(img)
+
+            C = net_feats.shape[2]
+            # args: X: Bx3xHxW, keypoint_positions: BxNx2, obj_mask: BxHxW ensures that noise is sampled outside of object mask
+            # returns: BxF+NxC
+
+            # net_feats = net_feats[:, :].reshape(-1, net_feats.shape[-1])
+            batch_vts_ids = meshes.get_verts_and_noise_ids_stacked(
+                [0] * B,
+                count_noise_ids=0,
+            )
+
+            # N,
+            batch_vts_ids = torch.cat(
+                [batch_vts_ids[:, :N][vts2d_mask], batch_vts_ids[:, N:].reshape(-1)],
+                dim=0,
+            )
+
+            # N x C
+            net_feats = torch.cat(
+                [net_feats[:, :N][vts2d_mask], net_feats[:, N:].reshape(-1, C)],
+                dim=0,
+            )
+
+            
+            mesh_root_path = self.path_preprocess.joinpath(
+                "raw_mesh_feats",
+                self.name_unique,
+            )
+            if not os.path.exists(mesh_root_path):
+                os.makedirs(mesh_root_path)
+            
+            
+            for b, vertex_id in enumerate(batch_vts_ids):
+                #logger.info(f"net_feats[b : b + 1]: {net_feats[b : b + 1].shape}")
+                #logger.info(f"meshes_verts_aggregated_features[vertex_id]: {meshes_verts_aggregated_features[vertex_id].shape}")
                 
-        #             mixing_ratio = self.mixing_ratio
-        #             feats2d_net_dino = model(batch.rgb)
-
-        #             feats2d_net_dino = feats2d_net_dino / torch.norm(
-        #                 feats2d_net_dino, dim=1, keepdim=True
-        #             )
-        #             feats2d_net = torch.concat(
-        #                 [
-        #                     feats2d_net * torch.sqrt(torch.tensor(mixing_ratio)),
-        #                     feats2d_net_dino
-        #                     * torch.sqrt(torch.tensor(1.0 - mixing_ratio)),
-        #                 ],
-        #                 dim=1,
-        #             )
-        #             feats2d_net = feats2d_net / torch.norm(
-        #                 feats2d_net, dim=1, keepdim=True
-        #             )
-        #             assert torch.allclose(
-        #                 torch.norm(feats2d_net, dim=1).cuda(),
-        #                 torch.ones(
-        #                     torch.norm(feats2d_net, dim=1).shape[0], 32, 32
-        #                 ).cuda(),
-        #                 atol=1e-6,
-        #             ), "Vectors are not properly normalized"
-        #             # print(' ')
-        #         if self.flip_sfm:
-        #             feats2d_net = my_get_feature(
-        #                 torch.flip(batch.rgb, dims=[3]), sph_mapper
-        #             )
-
-        #     noise2d = torch.ones(size=(vts2d.shape[0], 0, 2), device=device)
-
-        #     # B x F+N x C
-        #     net_feats = sample_pxl2d_pts(
-        #         feats2d_net,
-        #         pxl2d=torch.cat([vts2d, noise2d], dim=1),
-        #     )
-            
-        #     # visualize points sampled
-        #     # from od3d.cv.visual.show import show_img
-        #     # from od3d.cv.visual.draw import draw_pixels
-        #     # img = batch.rgb[0].clone()
-        #     # img = draw_pixels(img, vts2d[0] * down_sample_rate, colors=meshes.get_verts_ncds_with_mesh_id(mesh_id=0))
-        #     # show_img(img)
-
-        #     C = net_feats.shape[2]
-        #     # args: X: Bx3xHxW, keypoint_positions: BxNx2, obj_mask: BxHxW ensures that noise is sampled outside of object mask
-        #     # returns: BxF+NxC
-
-        #     # net_feats = net_feats[:, :].reshape(-1, net_feats.shape[-1])
-        #     batch_vts_ids = meshes.get_verts_and_noise_ids_stacked(
-        #         [0] * B,
-        #         count_noise_ids=0,
-        #     )
-
-        #     # N,
-        #     batch_vts_ids = torch.cat(
-        #         [batch_vts_ids[:, :N][vts2d_mask], batch_vts_ids[:, N:].reshape(-1)],
-        #         dim=0,
-        #     )
-
-        #     # N x C
-        #     net_feats = torch.cat(
-        #         [net_feats[:, :N][vts2d_mask], net_feats[:, N:].reshape(-1, C)],
-        #         dim=0,
-        #     )
-
-            
-        #     mesh_root_path = self.path_preprocess.joinpath(
-        #         "raw_mesh_feats",
-        #         self.name_unique,
-        #     )
-        #     if not os.path.exists(mesh_root_path):
-        #         os.makedirs(mesh_root_path)
-            
-            
-        #     for b, vertex_id in enumerate(batch_vts_ids):
-        #         #logger.info(f"net_feats[b : b + 1]: {net_feats[b : b + 1].shape}")
-        #         #logger.info(f"meshes_verts_aggregated_features[vertex_id]: {meshes_verts_aggregated_features[vertex_id].shape}")
+                meshes_verts_aggregated_features[vertex_id] = torch.cat(
+                    [
+                        net_feats[b : b + 1].detach().cpu(),
+                        meshes_verts_aggregated_features[vertex_id].detach().cpu(),
+                    ],
+                    dim=0,
+                )
+                meshes_verts_aggregated_viewpoints[vertex_id] = torch.cat(
+                    [
+                        viewpoints3d[b : b + 1].detach().cpu(),
+                        meshes_verts_aggregated_viewpoints[vertex_id].detach().cpu(),
+                    ],
+                    dim=0,
+                )
                 
-        #         meshes_verts_aggregated_features[vertex_id] = torch.cat(
-        #             [
-        #                 net_feats[b : b + 1].detach().cpu(),
-        #                 meshes_verts_aggregated_features[vertex_id].detach().cpu(),
-        #             ],
-        #             dim=0,
-        #         )
-        #         meshes_verts_aggregated_viewpoints[vertex_id] = torch.cat(
-        #             [
-        #                 viewpoints3d[b : b + 1].detach().cpu(),
-        #                 meshes_verts_aggregated_viewpoints[vertex_id].detach().cpu(),
-        #             ],
-        #             dim=0,
-        #         )
-                
-        # logger.info(f"type of meshes_verts_aggregated_features: {type(meshes_verts_aggregated_features)}")
-        # logger.info(f"type of meshes_verts_aggregated_viewpoints: {type(meshes_verts_aggregated_viewpoints)}")
+        logger.info(f"type of meshes_verts_aggregated_features: {type(meshes_verts_aggregated_features)}")
+        logger.info(f"type of meshes_verts_aggregated_viewpoints: {type(meshes_verts_aggregated_viewpoints)}")
         
-        # logger.info(f"save mesh feats at {self.fpath_mesh_feats}")
-        # logger.info(f"save mesh feats viewpoint at {self.fpath_mesh_feats_viewpoint}")
+        logger.info(f"save mesh feats at {self.fpath_mesh_feats}")
+        logger.info(f"save mesh feats viewpoint at {self.fpath_mesh_feats_viewpoint}")
         
-        # if reduce_type == "acc":
-        #     if not self.fpath_mesh_feats.parent.exists():
-        #         self.fpath_mesh_feats.parent.mkdir(parents=True, exist_ok=True)
-        #     torch.save(meshes_verts_aggregated_features, f=f"{mesh_root_path}/mesh_feats.pt")
-        #     torch.save(
-        #         meshes_verts_aggregated_viewpoints,
-        #         f=f"{mesh_root_path}/mesh_feats_viewpoint.pt",
-        #     )
-        #     # meshes_verts_agdgregated_features.clear()
-        #     avg_path = self.get_fpath_mesh_feats(
-        #         mesh_feats_type="M_dinov2_vitb14_frozen_base_T_centerzoom512_R_avg"
-        #     )
-        #     if not avg_path.parent.exists():
-        #         avg_path.parent.mkdir(parents=True, exist_ok=True)
-        #     meshes_verts_aggregated_features_avg = torch.stack(
-        #         [
-        #             agg_feats.mean(dim=0)
-        #             for agg_feats in meshes_verts_aggregated_features
-        #         ],
-        #         dim=0,
-        #     )
-        #     torch.save(
-        #         meshes_verts_aggregated_features_avg.detach().cpu(),
-        #         f=avg_path,
-        #     )
+        if reduce_type == "acc":
+            if not self.fpath_mesh_feats.parent.exists():
+                self.fpath_mesh_feats.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(meshes_verts_aggregated_features, f=f"{mesh_root_path}/mesh_feats.pt")
+            torch.save(
+                meshes_verts_aggregated_viewpoints,
+                f=f"{mesh_root_path}/mesh_feats_viewpoint.pt",
+            )
+            # meshes_verts_agdgregated_features.clear()
+            avg_path = self.get_fpath_mesh_feats(
+                mesh_feats_type="M_dinov2_vitb14_frozen_base_T_centerzoom512_R_avg"
+            )
+            if not avg_path.parent.exists():
+                avg_path.parent.mkdir(parents=True, exist_ok=True)
+            meshes_verts_aggregated_features_avg = torch.stack(
+                [
+                    agg_feats.mean(dim=0)
+                    for agg_feats in meshes_verts_aggregated_features
+                ],
+                dim=0,
+            )
+            torch.save(
+                meshes_verts_aggregated_features_avg.detach().cpu(),
+                f=avg_path,
+            )
 
-        #     del meshes_verts_aggregated_features_avg
-        # elif reduce_type == "avg":
-        #     if not self.fpath_mesh_feats.parent.exists():
-        #         self.fpath_mesh_feats.parent.mkdir(parents=True, exist_ok=True)
-        #     meshes_verts_aggregated_features_avg = torch.stack(
-        #         [
-        #             agg_feats.mean(dim=0)
-        #             for agg_feats in meshes_verts_aggregated_features
-        #         ],
-        #         dim=0,
-        #     )
-        #     torch.save(
-        #         meshes_verts_aggregated_features_avg.detach().cpu(),
-        #         f=self.fpath_mesh_feats,
-        #     )
-        #     meshes_verts_aggregated_viewpoints_avg = torch.stack(
-        #         [
-        #             agg_viewpoints.mean(dim=0)
-        #             for agg_viewpoints in meshes_verts_aggregated_viewpoints
-        #         ],
-        #         dim=0,
-        #     )
-        #     torch.save(
-        #         meshes_verts_aggregated_viewpoints_avg.detach().cpu(),
-        #         f=self.fpath_mesh_feats_viewpoint,
-        #     )
+            del meshes_verts_aggregated_features_avg
+        elif reduce_type == "avg":
+            if not self.fpath_mesh_feats.parent.exists():
+                self.fpath_mesh_feats.parent.mkdir(parents=True, exist_ok=True)
+            meshes_verts_aggregated_features_avg = torch.stack(
+                [
+                    agg_feats.mean(dim=0)
+                    for agg_feats in meshes_verts_aggregated_features
+                ],
+                dim=0,
+            )
+            torch.save(
+                meshes_verts_aggregated_features_avg.detach().cpu(),
+                f=self.fpath_mesh_feats,
+            )
+            meshes_verts_aggregated_viewpoints_avg = torch.stack(
+                [
+                    agg_viewpoints.mean(dim=0)
+                    for agg_viewpoints in meshes_verts_aggregated_viewpoints
+                ],
+                dim=0,
+            )
+            torch.save(
+                meshes_verts_aggregated_viewpoints_avg.detach().cpu(),
+                f=self.fpath_mesh_feats_viewpoint,
+            )
 
-        #     del meshes_verts_aggregated_features_avg
-        # elif reduce_type == "avg_norm":
-        #     if not self.fpath_mesh_feats.parent.exists():
-        #         self.fpath_mesh_feats.parent.mkdir(parents=True, exist_ok=True)
-        #     meshes_verts_aggregated_features_avg_norm = torch.nn.functional.normalize(
-        #         torch.stack(
-        #             [
-        #                 agg_feats.mean(dim=0)
-        #                 for agg_feats in meshes_verts_aggregated_features
-        #             ],
-        #             dim=0,
-        #         ),
-        #         dim=-1,
-        #     )
-        #     torch.save(
-        #         meshes_verts_aggregated_features_avg_norm.detach().cpu(),
-        #         f=self.fpath_mesh_feats,
-        #     )
-        #     del meshes_verts_aggregated_features_avg_norm
-        #     meshes_verts_aggregated_viewpoints_avg = torch.stack(
-        #         [
-        #             agg_viewpoints.mean(dim=0)
-        #             for agg_viewpoints in meshes_verts_aggregated_viewpoints
-        #         ],
-        #         dim=0,
-        #     )
-        #     torch.save(
-        #         meshes_verts_aggregated_viewpoints_avg.detach().cpu(),
-        #         f=self.fpath_mesh_feats_viewpoint,
-        #     )
+            del meshes_verts_aggregated_features_avg
+        elif reduce_type == "avg_norm":
+            if not self.fpath_mesh_feats.parent.exists():
+                self.fpath_mesh_feats.parent.mkdir(parents=True, exist_ok=True)
+            meshes_verts_aggregated_features_avg_norm = torch.nn.functional.normalize(
+                torch.stack(
+                    [
+                        agg_feats.mean(dim=0)
+                        for agg_feats in meshes_verts_aggregated_features
+                    ],
+                    dim=0,
+                ),
+                dim=-1,
+            )
+            torch.save(
+                meshes_verts_aggregated_features_avg_norm.detach().cpu(),
+                f=self.fpath_mesh_feats,
+            )
+            del meshes_verts_aggregated_features_avg_norm
+            meshes_verts_aggregated_viewpoints_avg = torch.stack(
+                [
+                    agg_viewpoints.mean(dim=0)
+                    for agg_viewpoints in meshes_verts_aggregated_viewpoints
+                ],
+                dim=0,
+            )
+            torch.save(
+                meshes_verts_aggregated_viewpoints_avg.detach().cpu(),
+                f=self.fpath_mesh_feats_viewpoint,
+            )
 
-        # elif reduce_type == "min50":
-        #     if not self.fpath_mesh_feats.parent.exists():
-        #         self.fpath_mesh_feats.parent.mkdir(parents=True, exist_ok=True)
+        elif reduce_type == "min50":
+            if not self.fpath_mesh_feats.parent.exists():
+                self.fpath_mesh_feats.parent.mkdir(parents=True, exist_ok=True)
 
-        #     meshes_verts_aggregated_features_padded = torch.nn.utils.rnn.pad_sequence(
-        #         meshes_verts_aggregated_features,
-        #         padding_value=torch.nan,
-        #         batch_first=True,
-        #     )
-        #     meshes_verts_aggregated_viewpoints_padded = torch.nn.utils.rnn.pad_sequence(
-        #         meshes_verts_aggregated_viewpoints,
-        #         padding_value=torch.nan,
-        #         batch_first=True,
-        #     )
+            meshes_verts_aggregated_features_padded = torch.nn.utils.rnn.pad_sequence(
+                meshes_verts_aggregated_features,
+                padding_value=torch.nan,
+                batch_first=True,
+            )
+            meshes_verts_aggregated_viewpoints_padded = torch.nn.utils.rnn.pad_sequence(
+                meshes_verts_aggregated_viewpoints,
+                padding_value=torch.nan,
+                batch_first=True,
+            )
 
-        #     meshes_verts_aggregated_features_dists = torch.cdist(
-        #         meshes_verts_aggregated_features_padded,
-        #         meshes_verts_aggregated_features_padded,
-        #     )
-        #     c = torch.nanquantile(meshes_verts_aggregated_features_dists, q=0.5, dim=-1)
-        #     vals, indices = c.nan_to_num(torch.inf).min(dim=-1)
-        #     from od3d.cv.select import batched_index_select
+            meshes_verts_aggregated_features_dists = torch.cdist(
+                meshes_verts_aggregated_features_padded,
+                meshes_verts_aggregated_features_padded,
+            )
+            c = torch.nanquantile(meshes_verts_aggregated_features_dists, q=0.5, dim=-1)
+            vals, indices = c.nan_to_num(torch.inf).min(dim=-1)
+            from od3d.cv.select import batched_index_select
 
-        #     mesh_verts_aggregated_features_min50 = batched_index_select(
-        #         input=meshes_verts_aggregated_features_padded,
-        #         index=indices[:, None],
-        #         dim=1,
-        #     )[:, 0]
-        #     mesh_verts_aggregated_viewpoints_min50 = batched_index_select(
-        #         input=meshes_verts_aggregated_viewpoints_padded,
-        #         index=indices[:, None],
-        #         dim=1,
-        #     )[:, 0]
+            mesh_verts_aggregated_features_min50 = batched_index_select(
+                input=meshes_verts_aggregated_features_padded,
+                index=indices[:, None],
+                dim=1,
+            )[:, 0]
+            mesh_verts_aggregated_viewpoints_min50 = batched_index_select(
+                input=meshes_verts_aggregated_viewpoints_padded,
+                index=indices[:, None],
+                dim=1,
+            )[:, 0]
 
-        #     torch.save(
-        #         mesh_verts_aggregated_features_min50.detach().cpu(),
-        #         f=self.fpath_mesh_feats,
-        #     )
-        #     torch.save(
-        #         mesh_verts_aggregated_viewpoints_min50.detach().cpu(),
-        #         f=self.fpath_mesh_feats_viewpoint,
-        #     )
+            torch.save(
+                mesh_verts_aggregated_features_min50.detach().cpu(),
+                f=self.fpath_mesh_feats,
+            )
+            torch.save(
+                mesh_verts_aggregated_viewpoints_min50.detach().cpu(),
+                f=self.fpath_mesh_feats_viewpoint,
+            )
 
-        # else:
-        #     logger.warning(f"Unknown mesh feature reduce_type {reduce_type}.")
+        else:
+            logger.warning(f"Unknown mesh feature reduce_type {reduce_type}.")
 
         del dataloader
         del model
