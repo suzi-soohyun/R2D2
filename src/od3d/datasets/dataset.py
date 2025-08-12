@@ -22,7 +22,7 @@ from od3d.datasets.sequence import OD3D_Sequence
 from od3d.datasets.sequence_meta import OD3D_SequenceMeta
 from copy import deepcopy
 import yaml
-
+import pickle
 
 class OD3D_SEQ_MODALITIES(str, Enum):
     PCL = "pcl"
@@ -1151,6 +1151,7 @@ class OD3D_SequenceDataset(OD3D_Dataset):
 
     def preprocess_dino_feats(self, override=False):
         logger.info("preprocess raw dino feats...")
+        dino_npixels = {}
         from od3d.datasets.pca_util import pca
         batch_size = 6
         dict_category_sequences_names = self.dict_category_sequences_names 
@@ -1164,19 +1165,21 @@ class OD3D_SequenceDataset(OD3D_Dataset):
             
             total_dino_features_list = []
             for sequence_name_unique in dict_category_sequences_names[category]:
-                sequence_name_unique = f"{category}/{sequence_name_unique}"
+                name_unique = f"{category}/{sequence_name_unique}"
                 sequence = self.get_sequence_by_name_unique(
-                    name_unique=sequence_name_unique
+                    name_unique=name_unique
                 )
-                print(sequence_name_unique)
+                print(name_unique)
                 seq_dino_feats = sequence.preprocess_dino_feats(batch_size=batch_size, override=override)
+                dino_npixels.update({sequence_name_unique: seq_dino_feats.shape[0]})
+
                 total_dino_features_list.append(seq_dino_feats)
                 del seq_dino_feats
                 torch.cuda.empty_cache()
             total_dino_features_tensor = torch.cat(total_dino_features_list, dim=0)
             n_feats = total_dino_features_tensor.shape[1]
             q = int(n_feats / 2)
-            pca_dino_feat, mean, projection = pca(total_dino_features_tensor, q)
+            pca_dino_feat, mean, projection = pca(total_dino_features_tensor, q, plot=True)
             logger.info(f"pca dino feature shape: {pca_dino_feat.shape}")
             logger.info(f"mean: {mean.shape}")
             logger.info(f"projection: {projection.shape}")
@@ -1190,12 +1193,14 @@ class OD3D_SequenceDataset(OD3D_Dataset):
             torch.save(projection, f=os.path.join(root_path, "dino_pca_proj.pt"))
             logger.info(f"save dino pca proj at {root_path}/dino_pca_proj.pt")
             
+            with open(os.path.join(root_path, "dino_npixels.pkl"), 'wb') as f:
+                pickle.dump(dino_npixels, f)
+
             del total_dino_features_tensor, pca_dino_feat, mean, projection
             torch.cuda.empty_cache()
                 
     def preprocess_raw_feats(self, override=False):
         logger.info("preprocess raw features for dino and sph feats...")
-        from od3d.datasets.pca_util import pca
         batch_size = 6
         dict_category_sequences_names = self.dict_category_sequences_names 
         for category in dict_category_sequences_names.keys():
@@ -1207,21 +1212,26 @@ class OD3D_SequenceDataset(OD3D_Dataset):
             dino_feats = torch.load(f"{root_path}/dino_pca_feats.pt")
             dino_mean = torch.load(f"{root_path}/dino_pca_mean.pt")
             dino_proj = torch.load(f"{root_path}/dino_pca_proj.pt")
-            
+            with open(os.path.join(root_path, "dino_npixels.pkl"), 'rb') as f:
+                dino_npixels = pickle.load(f)
+
             logger.info(f"dino feature shape: {dino_feats.shape}")
             logger.info(f"dino mean shape: {dino_mean.shape}")
-            logger.info(f"dino mean shape: {dino_proj.shape}")
+            logger.info(f"dino projection shape: {dino_proj.shape}")
+            logger.info(f"dino npixels: {dino_npixels}")
 
             s_pixel = 0
             for sequence_name_unique in dict_category_sequences_names[category]:
-                sequence_name_unique = f"{category}/{sequence_name_unique}"
+                seq_root_path = os.path.join(root_path, sequence_name_unique)
+                name_unique = f"{category}/{sequence_name_unique}"
                 sequence = self.get_sequence_by_name_unique(
-                    name_unique=sequence_name_unique
+                    name_unique = name_unique
                 )
-                print(sequence_name_unique)
+                print(name_unique)
                 visualization = False
-                e_pixel = sequence.preprocess_combine_feats(root_path, dino_feats, dino_mean, dino_proj, 
-                                             s_pixel, batch_size, visualization=visualization, override=override)
+                e_pixel = s_pixel + dino_npixels[sequence_name_unique]
+                sequence.preprocess_raw_feats(seq_root_path, dino_feats[s_pixel:e_pixel,:], dino_mean, dino_proj, batch_size, visualization=visualization, override=override)
+
                 s_pixel = e_pixel
                 
             del dino_feats, dino_mean, dino_proj
@@ -1235,16 +1245,16 @@ class OD3D_SequenceDataset(OD3D_Dataset):
         dict_category_sequences_names = self.dict_category_sequences_names 
         for category in dict_category_sequences_names.keys():
             for sequence_name_unique in dict_category_sequences_names[category]:
-                sequence_name_unique = category + "/" + sequence_name_unique
-                
+                name_unique = f"{category}/{sequence_name_unique}"
                 sequence = self.get_sequence_by_name_unique(
-                    name_unique=sequence_name_unique,
+                    name_unique=name_unique,
                 )
 
                 if baseline:
                     sequence.preprocess_mesh_feats_baseline(batch_size, override=override)
                 else:
-                    sequence.preprocess_mesh_feats(batch_size, override=override)
+                    sequence.preprocess_mesh_feats(category, sequence_name_unique, batch_size, feats_type="dino", override=override)
+                    sequence.preprocess_mesh_feats(category, sequence_name_unique, batch_size, feats_type="sph", override=override)
 
 
     def preprocess_mesh_feats_clustering(self, override=False):

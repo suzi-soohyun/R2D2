@@ -1,12 +1,7 @@
-from typing import Optional, Union, Tuple
+from typing import Tuple
 import torch
-import numpy as np
 import matplotlib.pyplot as plt
-import torchvision.transforms.functional as TF
 import os, sys
-import torch.nn.functional as F
-
-from od3d.cv.visual import mask
 
 def pca(features: torch.Tensor, q: int, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -114,3 +109,16 @@ def visualize_features(dino_feat: torch.Tensor, sph_feat: torch.Tensor, mask: to
     plt.tight_layout(pad=4.0)
     plt.savefig(f"{output_dir}/masked_features_{idx}.png")
     print(f"save {output_dir}/masked_features_{idx}.png")
+
+
+def torch_cov(tensor, rowvar=True):
+    if tensor.dim() != 2:
+        raise ValueError("Input tensor must be 2D")
+
+    if not rowvar:
+        tensor = tensor.t()
+    
+    mean = tensor.mean(dim=1, keepdim=True)
+    xm = tensor - mean
+    cov = xm @ xm.t() / (tensor.size(1) - 1)
+    return cov

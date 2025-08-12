@@ -14,7 +14,7 @@ def sample_pxl2d_pts(x, pxl2d, padding_mode="zeros", padding_value=1.0):
     Returns:
         x_sampled (torch.Tensor): NxC / BxNxC
     """
-
+    #TODO nan values processing
     dtype = x.dtype
     if dtype == torch.uint8 or dtype == torch.bool:
         x = x.to(dtype=pxl2d.dtype)
