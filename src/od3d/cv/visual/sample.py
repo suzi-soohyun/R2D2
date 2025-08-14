@@ -1,8 +1,48 @@
 import logging
-
+import sys
 import torch
 
 logger = logging.getLogger(__name__)
+
+def sample_pxl2d_pts_with_features(masked_feats, pxl2d, img_mask, padding_mode="zeros", padding_value=1.0):
+    dtype = masked_feats.dtype
+    device = masked_feats.device
+    H, W = img_mask.shape[-2:]
+    mask_bool = (img_mask.permute(1, 2, 0).squeeze(-1) > 0.5).to(device)
+    feats = torch.full((H, W, masked_feats.shape[1]), 0.0, device=device, dtype=dtype)
+    feats[mask_bool] = masked_feats
+    feats = feats.permute(2, 0, 1).unsqueeze(0)
+    
+    pxl2d_normalized = pxl2d.clone()
+    pxl2d_normalized[:, 0] = pxl2d[:, 0] / (W - 1.0) * 2.0 - 1.0
+    pxl2d_normalized[:, 1] = pxl2d[:, 1] / (H - 1.0) * 2.0 - 1.0
+
+    if padding_mode == "value" or padding_mode == "ones":
+        _padding_mode = "zeros"
+    else:
+        _padding_mode = padding_mode
+    feats_sampled = torch.nn.functional.grid_sample(
+        input=feats,
+        grid=pxl2d_normalized[None, :, None, :],
+        mode="bilinear",
+        padding_mode=_padding_mode,
+        align_corners=True,
+    ).squeeze(-1).permute(0, 2, 1)
+
+    if padding_mode == "value" or padding_mode == "ones":
+        mask_outside_of_grid = (
+            (pxl2d_normalized[:, 0] < -1.0)
+            + (pxl2d_normalized[:, 1] < -1.0)
+            + (pxl2d_normalized[:, 0] > 1.0)
+            + (pxl2d_normalized[:, 1] > 1.0)
+        )
+        feats_sampled[mask_outside_of_grid] = padding_value
+
+    if feats_sampled.shape[0] == 1:
+        feats_sampled = feats_sampled[0]
+
+    feats_sampled = feats_sampled.to(dtype=dtype)
+    return feats_sampled
 
 
 def sample_pxl2d_pts(x, pxl2d, padding_mode="zeros", padding_value=1.0):
@@ -14,7 +54,6 @@ def sample_pxl2d_pts(x, pxl2d, padding_mode="zeros", padding_value=1.0):
     Returns:
         x_sampled (torch.Tensor): NxC / BxNxC
     """
-    #TODO nan values processing
     dtype = x.dtype
     if dtype == torch.uint8 or dtype == torch.bool:
         x = x.to(dtype=pxl2d.dtype)

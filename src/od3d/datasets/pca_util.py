@@ -1,7 +1,7 @@
 from typing import Tuple
 import torch
 import matplotlib.pyplot as plt
-import os, sys
+import os
 
 def pca(features: torch.Tensor, q: int, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -66,17 +66,6 @@ def mask_features(features: torch.Tensor, mask: torch.Tensor):
     return masked_features, mask_coords
 
 
-def apply_mask_to_full_size(features: torch.Tensor, mask: torch.Tensor, image_size: Tuple[int, int] = (32, 32)):
-    H, W = image_size
-    full_image_features = torch.full((H, W, features.shape[1]), float('nan'), device=features.device)
-    mask_permuted = mask.to(features.device).permute(1, 2, 0)
-    mask_bool = mask_permuted.squeeze(-1) > 0.5
-    
-    full_image_features[mask_bool] = features
-    return full_image_features.unsqueeze(0)
-
-
-
 def visualize_features(dino_feat: torch.Tensor, sph_feat: torch.Tensor, mask: torch.Tensor, 
                        image_size: Tuple[int, int] = (32, 32), idx: int = 0, output_dir: str = None):
 
@@ -109,16 +98,3 @@ def visualize_features(dino_feat: torch.Tensor, sph_feat: torch.Tensor, mask: to
     plt.tight_layout(pad=4.0)
     plt.savefig(f"{output_dir}/masked_features_{idx}.png")
     print(f"save {output_dir}/masked_features_{idx}.png")
-
-
-def torch_cov(tensor, rowvar=True):
-    if tensor.dim() != 2:
-        raise ValueError("Input tensor must be 2D")
-
-    if not rowvar:
-        tensor = tensor.t()
-    
-    mean = tensor.mean(dim=1, keepdim=True)
-    xm = tensor - mean
-    cov = xm @ xm.t() / (tensor.size(1) - 1)
-    return cov

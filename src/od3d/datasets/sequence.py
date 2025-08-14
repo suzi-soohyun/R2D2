@@ -2306,7 +2306,7 @@ class OD3D_SequenceMeshMixin(
         import re
         from od3d.SphericalMaps.get_feature import my_get_feature
         from od3d.SphericalMaps.dino_mapper import MyDINOMapper
-        from od3d.datasets.pca_util import mask_features, visualize_features, apply_mask_to_full_size
+        from od3d.datasets.pca_util import mask_features, visualize_features
 
         device = get_default_device()
  
@@ -2366,8 +2366,6 @@ class OD3D_SequenceMeshMixin(
             logger.info(f"spherical feature map shape {sph_feats.shape}")
             B, C, H, W = sph_feats.shape
             mask_resized = F.interpolate(mask, size=(H, W), mode='nearest')
-            dino_features_list, sph_features_list = [], []
-      
             for b in range(B):
                 masked_sph_features, mask_coords = mask_features(sph_feats[b], mask_resized[b])
                 n_pixel = torch.count_nonzero(mask_resized[b]).item()
@@ -2394,18 +2392,8 @@ class OD3D_SequenceMeshMixin(
                     visualize_features(reconstructed_dino, masked_sph_features, mask_coords, (H, W), idx, output_dir=img_root_path)
                     idx += 1
                 
-                full_dino_feat = apply_mask_to_full_size(masked_dino_features, mask_resized[b].cpu(), (H, W))
-                full_sph_feat = apply_mask_to_full_size(masked_sph_features, mask_resized[b].cpu(), (H, W))
-
-                dino_features_list.append(full_dino_feat)
-                sph_features_list.append(full_sph_feat)
-                del full_dino_feat, full_sph_feat
-                torch.cuda.empty_cache()
-                
-            total_dino_features_list.append(torch.cat(dino_features_list, dim=0).cpu())
-            total_sph_features_list.append(torch.cat(sph_features_list, dim=0).cpu())
-            del dino_features_list, sph_features_list
-            torch.cuda.empty_cache()
+                total_dino_features_list.append(masked_dino_features)
+                total_sph_features_list.append(masked_sph_features)
             
         total_dino_features_tensor = torch.cat(total_dino_features_list, dim=0)
         total_sph_features_tensor = torch.cat(total_sph_features_list, dim=0)
@@ -2421,36 +2409,7 @@ class OD3D_SequenceMeshMixin(
         torch.save(total_sph_features_tensor, f=os.path.join(seq_root_path, "sph_feats.pt"))
         logger.info(f"save sph feat at {seq_root_path}/sph_feats.pt")
         
-        total_dino_features_tensor = total_dino_features_tensor.view(-1, total_dino_features_tensor.shape[-1])
-        mask = ~torch.any(torch.isnan(total_dino_features_tensor), dim=1)
-        total_dino_features_tensor = total_dino_features_tensor[mask]
-
-        total_sph_features_tensor = total_sph_features_tensor.view(-1, total_sph_features_tensor.shape[-1])
-        total_sph_features_tensor = total_sph_features_tensor[mask]
-        logger.info(f"masked dino features shape: {total_dino_features_tensor.shape}")
-        logger.info(f"masked sph features shape: {total_sph_features_tensor.shape}")
-
-        # Compute mean and covariance matrix
-        dino_mean = total_dino_features_tensor.mean(dim=0)
-        dino_centered = total_dino_features_tensor - dino_mean
-        dino_cov_matrix = dino_centered.T @ dino_centered / (dino_centered.shape[0] - 1)
-
-        sph_mean = total_sph_features_tensor.mean(dim=0)
-        sph_centered = total_sph_features_tensor - sph_mean
-        sph_cov_matrix = sph_centered.T @ sph_centered / (sph_centered.shape[0] - 1)
-        
-        torch.save(dino_mean, f=os.path.join(seq_root_path, "dino_mean.pt"))
-        logger.info(f"save dino mean at {seq_root_path}/dino_mean.pt")
-        torch.save(dino_cov_matrix, f=os.path.join(seq_root_path, "dino_cov_matrix.pt"))
-        logger.info(f"save dino covariance matrix at {seq_root_path}/dino_cov_matrix.pt")
-
-        torch.save(sph_mean, f=os.path.join(seq_root_path, "sph_mean.pt"))
-        logger.info(f"save sph mean at {seq_root_path}/sph_mean.pt")
-        torch.save(sph_cov_matrix, f=os.path.join(seq_root_path, "sph_cov_matrix.pt"))
-        logger.info(f"save sph covariance matrix at {seq_root_path}/sph_cov_matrix.pt")
-       
-        torch.cuda.empty_cache()
-        del total_dino_features_list, total_sph_features_list
+        del total_dino_features_tensor, total_sph_features_tensor
         torch.cuda.empty_cache()
         
 
@@ -2464,22 +2423,6 @@ class OD3D_SequenceMeshMixin(
         import re
         from od3d.cv.geometry.objects3d.meshes import Meshes
         from od3d.cv.visual.sample import sample_pxl2d_pts
-        from od3d.datasets.pca_util import torch_cov
-
-        # if (
-        #     not override
-        #     and self.fpath_mesh_feats.exists()
-        #     and self.fpath_mesh_feats_viewpoint.exists()
-        # ):
-        #     logger.info(f"mesh feats already exist at {self.fpath_mesh_feats}")
-        #     return
-
-        # if override and (
-        #     self.fpath_mesh_feats.exists() or self.fpath_mesh_feats_viewpoint.exists()
-        # ):
-        #     logger.info(f"overriding mesh feats at {self.fpath_mesh_feats}")
-        #     # self.remove_mesh_feats_preprocess_dependent_files()
-
         device = get_default_device()
 
         # e.g.: 'M_dinov2_frozen_base_T_centerzoom512_R_acc'
@@ -2544,16 +2487,10 @@ class OD3D_SequenceMeshMixin(
             # INFO: not all vertices of the mesh are visible in all frames due to occlusions or the image not caputring that
             # part of the object. If a vertex is not visible in an image, the image should not contribute neither to the mean, 
             # nor the covariance calculation. 
-            # TODO: treating the speritcal and DINO features seperately.
-            
-            e_idx = s_idx + 6
-            if e_idx > raw_feats.shape[0]:
-                e_idx = raw_feats.shape[0]
-
-            feats2d_net = raw_feats[s_idx:e_idx].permute(0, 3, 1, 2)
-
             B = len(batch)
-            batch.to(device=device)          
+            batch.to(device=device)
+            mask = (batch.mask > 0.5).float()
+            mask_resized = F.interpolate(mask, size=(32, 32), mode='nearest')
             batch.cam_tform4x4_obj = batch.cam_tform4x4_obj.detach()
 
             vts2d, vts2d_mask = meshes.verts2d(
@@ -2587,28 +2524,32 @@ class OD3D_SequenceMeshMixin(
             viewpoints3d = viewpoints3d[vts2d_mask]
 
             N = vts2d.shape[1]
-            noise2d = torch.ones(size=(vts2d.shape[0], 0, 2), device=device)
-
-            # B x F+N x C
-            net_feats = sample_pxl2d_pts(
-                feats2d_net,
-                pxl2d=torch.cat([vts2d, noise2d], dim=1),
-            )
-            
-            s_idx = e_idx
-
-            C = net_feats.shape[2]
             batch_vts_ids = meshes.get_verts_and_noise_ids_stacked(
                 [0] * B,
                 count_noise_ids=0,
             )
 
-            # N,
             batch_vts_ids = torch.cat(
                 [batch_vts_ids[:, :N][vts2d_mask], batch_vts_ids[:, N:].reshape(-1)],
                 dim=0,
             )
-
+            net_feats = []
+            s_idx, e_idx = 0, 0
+            for b in range(B):
+                n_pixels = int(mask_resized[b].sum().item())
+                e_idx = s_idx + n_pixels
+                pxl2d=vts2d[b]
+                from od3d.cv.visual.sample import sample_pxl2d_pts_with_features
+                img_feats = sample_pxl2d_pts_with_features(
+                    raw_feats[s_idx:e_idx,:],
+                    pxl2d,
+                    mask_resized[b],
+                )
+                s_idx = e_idx
+                net_feats.append(img_feats)
+            net_feats = torch.stack(net_feats, dim=0)
+            C = net_feats.shape[-1]
+            
             # N x C
             net_feats = torch.cat(
                 [net_feats[:, :N][vts2d_mask], net_feats[:, N:].reshape(-1, C)],
@@ -2616,8 +2557,8 @@ class OD3D_SequenceMeshMixin(
             )
 
             for b, vertex_id in enumerate(batch_vts_ids):
-                #logger.info(f"net_feats[b : b + 1]: {net_feats[b : b + 1].shape}")
-                #logger.info(f"meshes_verts_aggregated_features[vertex_id]: {meshes_verts_aggregated_features[vertex_id].shape}")
+                # logger.info(f"net_feats[b : b + 1]: {net_feats[b : b + 1].shape}")
+                # logger.info(f"meshes_verts_aggregated_features[vertex_id]: {meshes_verts_aggregated_features[vertex_id].shape}")
                 
                 meshes_verts_aggregated_features[vertex_id] = torch.cat(
                     [
@@ -2626,6 +2567,7 @@ class OD3D_SequenceMeshMixin(
                     ],
                     dim=0,
                 )
+                
                 meshes_verts_aggregated_viewpoints[vertex_id] = torch.cat(
                     [
                         viewpoints3d[b : b + 1].detach().cpu(),
@@ -2653,13 +2595,14 @@ class OD3D_SequenceMeshMixin(
                 f=f"{mesh_root_path}/mesh_feats_viewpoint.pt",
             )
 
-            logger.info(f"save mesh feats at {mesh_root_path}/mesh_feats.pt")
-            logger.info(f"save mesh feats viewpoint at {mesh_root_path}/mesh_feats_viewpoint.pt")
+            logger.info(f"save {feats_type} mesh feats at {mesh_root_path}/mesh_feats.pt")
+            logger.info(f"save {feats_type} mesh feats viewpoint at {mesh_root_path}/mesh_feats_viewpoint.pt")
 
             meshes_verts_aggregated_features_avg = None
             meshes_verts_aggregated_features_avg = torch.stack(
                 [
-                    agg_feats.mean(dim=0)
+                    agg_feats[(agg_feats != 0).any(dim=1)] # remove masking vertex and background
+                    .mean(dim=0)
                     for agg_feats in meshes_verts_aggregated_features
                 ],
                 dim=0,
@@ -2668,16 +2611,15 @@ class OD3D_SequenceMeshMixin(
             if len(meshes_verts_aggregated_features) > 0:
                 torch.save(
                     meshes_verts_aggregated_features_avg.detach().cpu(),
-                    f=f"{mesh_root_path}/mesh_feats_avg.pt"
+                    f=f"{mesh_root_path}/mesh_feats_mean.pt"
                 )
             del meshes_verts_aggregated_features_avg
-            logger.info(f"save mesh feats at {mesh_root_path}/mesh_feats_avg.pt")
+            logger.info(f"save {feats_type} mean of mesh feats at {mesh_root_path}/mesh_feats_mean.pt")
 
-            # TODO: save covariance matrix
             mesh_verts_aggregated_features_cov = None
             mesh_verts_aggregated_features_cov = torch.stack(
                 [
-                    torch_cov(agg_feats.t())
+                    torch.cov(agg_feats[(agg_feats != 0).any(dim=1)].T) # remove masking vertex and background
                     for agg_feats in meshes_verts_aggregated_features
                 ],
                 dim=0
@@ -2688,7 +2630,7 @@ class OD3D_SequenceMeshMixin(
                     f=f"{mesh_root_path}/mesh_feats_cov.pt"
                 )
             del mesh_verts_aggregated_features_cov
-            logger.info(f"save mesh feats viewpoint at {mesh_root_path}/mesh_feats_cov.pt")
+            logger.info(f"save {feats_type} covariance matrix of mesh feats at {mesh_root_path}/mesh_feats_cov.pt")
         else:
             logger.warning(f"Unknown mesh feature reduce_type {reduce_type}.")
 

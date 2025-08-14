@@ -1138,6 +1138,8 @@ class Meshes(OD3D_Objects3D):
         )
         mask_verts_vsbl *= (verts2d <= (imgs_sizes[None, None] - 1)).all(dim=-1)
         mask_verts_vsbl *= (verts2d >= 0).all(dim=-1)
+
+        # Fill masking areas with zero
         verts2d[~mask_verts_vsbl] = 0
         # verts2d.clamp()
 
