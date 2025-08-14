@@ -2598,39 +2598,39 @@ class OD3D_SequenceMeshMixin(
             logger.info(f"save {feats_type} mesh feats at {mesh_root_path}/mesh_feats.pt")
             logger.info(f"save {feats_type} mesh feats viewpoint at {mesh_root_path}/mesh_feats_viewpoint.pt")
 
-            meshes_verts_aggregated_features_avg = None
-            meshes_verts_aggregated_features_avg = torch.stack(
-                [
-                    agg_feats[(agg_feats != 0).any(dim=1)] # remove masking vertex and background
-                    .mean(dim=0)
-                    for agg_feats in meshes_verts_aggregated_features
-                ],
-                dim=0,
-            )            
-            ## save mean
-            if len(meshes_verts_aggregated_features) > 0:
-                torch.save(
-                    meshes_verts_aggregated_features_avg.detach().cpu(),
-                    f=f"{mesh_root_path}/mesh_feats_mean.pt"
-                )
-            del meshes_verts_aggregated_features_avg
-            logger.info(f"save {feats_type} mean of mesh feats at {mesh_root_path}/mesh_feats_mean.pt")
+            # meshes_verts_aggregated_features_avg = None
+            # meshes_verts_aggregated_features_avg = torch.stack(
+            #     [
+            #         agg_feats[(agg_feats != 0).any(dim=1)] # remove masking vertex and background
+            #         .mean(dim=0)
+            #         for agg_feats in meshes_verts_aggregated_features
+            #     ],
+            #     dim=0,
+            # )            
+            
+            # Compute mean and covariance over meshes
+            # Concatenate all valid features across all meshes
+            all_feats = torch.cat([
+                agg_feats[(agg_feats != 0).any(dim=1)]
+                for agg_feats in meshes_verts_aggregated_features
+            ], dim=0)
 
-            mesh_verts_aggregated_features_cov = None
-            mesh_verts_aggregated_features_cov = torch.stack(
-                [
-                    torch.cov(agg_feats[(agg_feats != 0).any(dim=1)].T) # remove masking vertex and background
-                    for agg_feats in meshes_verts_aggregated_features
-                ],
-                dim=0
-            )
-            if len(mesh_verts_aggregated_features_cov) > 0:
-                torch.save(
-                    mesh_verts_aggregated_features_cov,
-                    f=f"{mesh_root_path}/mesh_feats_cov.pt"
-                )
-            del mesh_verts_aggregated_features_cov
-            logger.info(f"save {feats_type} covariance matrix of mesh feats at {mesh_root_path}/mesh_feats_cov.pt")
+            if all_feats.shape[0] > 1:
+                global_mean = all_feats.mean(dim=0)          # shape [C]
+                global_cov = torch.cov(all_feats.T)          # shape [C, C]
+            else:
+                global_mean = torch.zeros(all_feats.shape[1])
+                global_cov = torch.zeros(all_feats.shape[1], all_feats.shape[1])
+                logger.warning("Not enough valid vertices to compute global covariance.")
+
+            # Save mean
+            torch.save(global_mean.detach().cpu(), f=f"{mesh_root_path}/mesh_feats_mean.pt")
+            logger.info(f"Saved global mean of mesh features at {mesh_root_path}/mesh_feats_mean.pt")
+
+            # Save covariance
+            torch.save(global_cov.detach().cpu(), f=f"{mesh_root_path}/mesh_feats_cov.pt")
+            logger.info(f"Saved global covariance matrix of mesh features at {mesh_root_path}/mesh_feats_cov.pt")
+            
         else:
             logger.warning(f"Unknown mesh feature reduce_type {reduce_type}.")
 
