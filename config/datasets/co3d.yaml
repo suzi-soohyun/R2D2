@@ -86,11 +86,11 @@ preprocess:
     override: False
     load_dino: True
   mesh_feats:
-    enabled: True
+    enabled: False
     override: False
     baseline: False
   mesh_feats_dist:
-    enabled: False
+    enabled: True
     override: False
 
 #sequences_require_good_cam_movement: False

@@ -1402,19 +1402,23 @@ class OD3D_SequenceDataset(OD3D_Dataset):
         for category in dict_category_sequences_names.keys():
             sequences_names_unique = dict_category_sequences_names[category]
             for sequence_name_unique1 in sequences_names_unique:
-                sequence_name_unique1 = category + "/" + sequence_name_unique1
+                name_unique1 = category + "/" + sequence_name_unique1
                 for sequence_name_unique2 in sequences_names_unique:
-                    sequence_name_unique2 = category + "/" + sequence_name_unique2
                     sequence1 = self.get_sequence_by_name_unique(
-                        name_unique=sequence_name_unique1,
-                    )
-                    sequence2 = self.get_sequence_by_name_unique(
-                        name_unique=sequence_name_unique2,
+                        name_unique=name_unique1,
                     )
                     sequence1.preprocess_mesh_feats_dist(
-                        sequence=sequence2,
-                        override=override,
-                    )
+                        category, 
+                        sequence_name_unique1, 
+                        sequence_name_unique2,
+                        feature_type="dino", 
+                        override=override)
+                    sequence1.preprocess_mesh_feats_dist(
+                        category, 
+                        sequence_name_unique1, 
+                        sequence_name_unique2,
+                        feature_type="sph", 
+                        override=override)
 
     def preprocess_mesh_feats_dist_mixture(self, override=False):
         logger.info("preprocess mesh feats dist...")
