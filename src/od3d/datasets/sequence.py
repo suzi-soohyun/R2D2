@@ -3895,10 +3895,10 @@ class OD3D_SequenceMeshMixin(
                 padding_value=torch.nan,
             ).to(
                 device=device
-            )  # 904, 69, 384
+            )
             print(seq12_feats_padded.shape)
-            F = seq12_feats_padded.shape[-1]  # 384
-            V = seq12_feats_padded.shape[-2]  # 69
+            F = seq12_feats_padded.shape[-1]
+            V = seq12_feats_padded.shape[-2]
             seq12_feats_padded_mask = ~seq12_feats_padded.isnan().all(dim=-1)
             
             P = seq1_verts_count  # ensures that 11 GB are enough    # 452
@@ -3946,11 +3946,15 @@ class OD3D_SequenceMeshMixin(
                         V,
                     )
                 if feature_type == "sph":
-                    dists_verts_feats_seq1_seq2 = -torch.einsum(
+                    seq1_feats_padded_norm = seq1_feats_padded / seq1_feats_padded.norm(p=2, dim=-1, keepdim=True)
+                    seq2_feats_padded_norm = seq2_feats_padded / seq2_feats_padded.norm(p=2, dim=-1, keepdim=True)
+                    cos_sim = torch.einsum(
                         "bnf,bkf->bnk",
-                        seq1_feats_padded.reshape(-1, F)[None,],
-                        seq2_feats_padded.reshape(-1, F)[None,],
-                    ).reshape(
+                        seq1_feats_padded_norm.reshape(-1, F)[None,],
+                        seq2_feats_padded_norm.reshape(-1, F)[None,],
+                    )
+                    cos_dist = 1 - cos_sim
+                    dists_verts_feats_seq1_seq2 = cos_dist.reshape(
                         seq1_verts_partial_count,
                         V,
                         seq2_verts_count,
