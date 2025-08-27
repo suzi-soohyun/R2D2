@@ -2238,7 +2238,7 @@ class OD3D_SequenceMeshMixin(
         else:
             return mesh_feats_viewpoint.clone()
 
-    def preprocess_dino_feats(self, batch_size, override=False):
+    def preprocess_pca_dino_feats(self, batch_size, override=False):
         from od3d.models.model import OD3D_Model
         from od3d.cv.transforms.transform import OD3D_Transform
         from od3d.cv.transforms.sequential import SequentialTransform
@@ -2286,9 +2286,9 @@ class OD3D_SequenceMeshMixin(
             mask_resized = F.interpolate(mask, size=(H, W), mode='nearest')
             dino_features_list = []
                 
-            from od3d.datasets.pca_util import mask_features
+            from od3d.datasets.pca_util import mask_features, visualize_features
             for b in range(B):
-                masked_dino_features, _ = mask_features(dino_feat[b], mask_resized[b])
+                masked_dino_features, mask_coords = mask_features(dino_feat[b], mask_resized[b])
                 logger.info(f"masked dino features: {masked_dino_features.shape}")
                 dino_features_list.append(masked_dino_features)
             total_dino_features_list.append(torch.cat(dino_features_list, dim=0))
@@ -2298,7 +2298,8 @@ class OD3D_SequenceMeshMixin(
         return total_dino_features_tensor
 
 
-    def preprocess_raw_feats(self, seq_root_path, dino_feats, dino_mean, dino_proj, batch_size, visualization, override=False):
+    def preprocess_mesh_feats(self, category, sequence_name_unique, batch_size, feats_type="dino", visualization=False, override=False):
+        # TODO: check if this works
         from od3d.models.model import OD3D_Model
         from od3d.cv.transforms.transform import OD3D_Transform
         from od3d.cv.transforms.sequential import SequentialTransform
@@ -2307,120 +2308,7 @@ class OD3D_SequenceMeshMixin(
         from od3d.SphericalMaps.get_feature import my_get_feature
         from od3d.SphericalMaps.dino_mapper import MyDINOMapper
         from od3d.datasets.pca_util import mask_features, visualize_features
-
-        device = get_default_device()
- 
-        # e.g.: 'M_dinov2_frozen_base_T_centerzoom512_R_acc'
-        match = re.match(
-            r"M_([a-z0-9_]+)_T_([a-z0-9_]+)_R_([a-z0-9_]+)",
-            self.mesh_feats_type,
-            re.I,
-        )
-        if match and len(match.groups()) == 3:
-            model_name, transform_name, reduce_type = match.groups()
-        else:
-            msg = f"could not retrieve model, transform, and reduce type from mesh feats type {self.mesh_feats_type}"
-            raise Exception(msg)
-        
-        if not self.use_sph:
-            logger.info("Not using sph features")
-            return False
-      
-        model = OD3D_Model.create_by_name(model_name)
-        model.cuda()
-        model.eval()
-            
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if self.use_sph == "save_raw_features":
-            sph_mapper = MyDINOMapper(
-                backbone="dinov2_vitb14_frozen_base_no_norm", n_cats=114
-            )
-            sph_mapper.load_checkpoint(
-                f'{root}/SphericalMaps/exps/olaf/exp_002_in3d_wo_sym_and_co3d_200.pth',
-                device=device,
-            )
-            sph_mapper.to(device)
-        sph_mapper = sph_mapper.to(device)
-        
-        transform = SequentialTransform(
-            [OD3D_Transform.create_by_name(transform_name), model.transform],
-        )
-        dataloader = self.get_dataloader_partial(
-            batch_size=batch_size,
-            shuffle=False,
-            transform=transform,
-        )
-        s_pixel, e_pixel = 0, 0
-        idx = 0
-        total_dino_features_list = []
-        total_sph_features_list = []
-        for batch in tqdm(iter(dataloader)):
-            B = len(batch)
-            batch.to(device=device)
-            mask = (batch.mask > 0.5).float()
-            imgs = batch.rgb
-            logger.info(f"rgb image shape {imgs.shape}")
-            logger.info(f"mask image shape {mask.shape}")
-
-            sph_feats = my_get_feature(imgs, sph_mapper)
-            logger.info(f"spherical feature map shape {sph_feats.shape}")
-            B, C, H, W = sph_feats.shape
-            mask_resized = F.interpolate(mask, size=(H, W), mode='nearest')
-            for b in range(B):
-                masked_sph_features, mask_coords = mask_features(sph_feats[b], mask_resized[b])
-                n_pixel = torch.count_nonzero(mask_resized[b]).item()
-                e_pixel = s_pixel + n_pixel
-                masked_dino_features = dino_feats[s_pixel:e_pixel,:]
-                logger.info(f"start: {s_pixel}, end: {e_pixel}, n_pixel: {n_pixel}")
-                s_pixel = e_pixel
-                
-                masked_dino_features = masked_dino_features.cpu()
-                masked_dino_features = masked_dino_features.cpu()
-                
-                logger.info(f"masked dino features: {masked_dino_features.shape}")
-                logger.info(f"masked sph features: {masked_sph_features.shape}")
-                                
-                img_root_path = self.path_preprocess.joinpath(
-                    "feats_img",
-                    self.name_unique,
-                )
-                if not os.path.exists(img_root_path):
-                    os.makedirs(img_root_path)
-                
-                if visualization:
-                    reconstructed_dino = torch.einsum("ND,CD->NC", masked_dino_features, dino_proj) + dino_mean
-                    visualize_features(reconstructed_dino, masked_sph_features, mask_coords, (H, W), idx, output_dir=img_root_path)
-                    idx += 1
-                
-                total_dino_features_list.append(masked_dino_features)
-                total_sph_features_list.append(masked_sph_features)
-            
-        total_dino_features_tensor = torch.cat(total_dino_features_list, dim=0)
-        total_sph_features_tensor = torch.cat(total_sph_features_list, dim=0)
-
-        logger.info(f"concatenated dino features shape: {total_dino_features_tensor.shape}")
-        logger.info(f"concatenated sph features shape: {total_sph_features_tensor.shape}")
-        
-        if not os.path.exists(seq_root_path):
-            os.makedirs(seq_root_path)
-        
-        torch.save(total_dino_features_tensor, f=os.path.join(seq_root_path, "dino_feats.pt"))
-        logger.info(f"save dino feat at {seq_root_path}/dino_feats.pt")
-        torch.save(total_sph_features_tensor, f=os.path.join(seq_root_path, "sph_feats.pt"))
-        logger.info(f"save sph feat at {seq_root_path}/sph_feats.pt")
-        
-        del total_dino_features_tensor, total_sph_features_tensor
-        torch.cuda.empty_cache()
-        
-
-    def preprocess_mesh_feats(self, category, sequence_name_unique, batch_size, feats_type="dino", override=False):
-        # TODO: check if this works
-        from od3d.models.model import OD3D_Model
-        from od3d.cv.transforms.transform import OD3D_Transform
-        from od3d.cv.transforms.sequential import SequentialTransform
         from od3d.cv.geometry.transform import inv_tform4x4
-        from tqdm import tqdm
-        import re
         from od3d.cv.geometry.objects3d.meshes import Meshes
         from od3d.cv.visual.sample import sample_pxl2d_pts
         device = get_default_device()
@@ -2437,22 +2325,34 @@ class OD3D_SequenceMeshMixin(
             msg = f"could not retrieve model, transform, and reduce type from mesh feats type {self.mesh_feats_type}"
             raise Exception(msg)
 
-        seq_root_path = self.path_preprocess.joinpath(
-            "raw_feats",
-            category,
-            sequence_name_unique
+        category_root_path = self.path_preprocess.joinpath(
+            "pca_dino",
+            category
         )
-        if feats_type == "dino":
-            raw_feats = torch.load(f"{seq_root_path}/dino_feats.pt", map_location=device)
-        elif feats_type == "sph":
-            raw_feats = torch.load(f"{seq_root_path}/sph_feats.pt", map_location=device)
-
-        logger.info(f"{feats_type}_feats shape: {raw_feats.shape}")
 
         # if self.mesh_feats_type == FEATURE_TYPES.
         model = OD3D_Model.create_by_name(model_name)
         model.cuda()
         model.eval()
+            
+        source_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))        
+        if feats_type == "dino":
+            dino_mean = torch.load(f"{category_root_path}/pca_dino_mean.pt")
+            dino_proj = torch.load(f"{category_root_path}/pca_dino_proj.pt")
+            feature_dim = dino_proj.shape[1]
+        elif feats_type == "sph":
+            if self.use_sph == "save_raw_features":
+                sph_mapper = MyDINOMapper(
+                    backbone="dinov2_vitb14_frozen_base_no_norm", n_cats=114
+                )
+                sph_mapper.load_checkpoint(
+                    f'{source_root}/SphericalMaps/exps/olaf/exp_002_in3d_wo_sym_and_co3d_200.pth',
+                    device=device,
+                )
+                sph_mapper.to(device)
+            sph_mapper = sph_mapper.to(device)
+            feature_dim = 3
+        
         transform = SequentialTransform(
             [OD3D_Transform.create_by_name(transform_name), model.transform],
         )
@@ -2460,10 +2360,10 @@ class OD3D_SequenceMeshMixin(
             batch_size=batch_size,
             shuffle=False,
             transform=transform,
-        )  # 11 GB
+        )
 
         down_sample_rate = model.downsample_rate
-        feature_dim = raw_feats.shape[-1]
+        
         self.mesh = None
         mesh = (
             self.get_mesh()
@@ -2482,7 +2382,7 @@ class OD3D_SequenceMeshMixin(
         vertices_count = len(meshes_verts_aggregated_features)
         print("vertices_count", vertices_count)
 
-        s_idx = 0
+        idx = 0
         for batch in tqdm(iter(dataloader)):
             # INFO: not all vertices of the mesh are visible in all frames due to occlusions or the image not caputring that
             # part of the object. If a vertex is not visible in an image, the image should not contribute neither to the mean, 
@@ -2490,7 +2390,22 @@ class OD3D_SequenceMeshMixin(
             B = len(batch)
             batch.to(device=device)
             mask = (batch.mask > 0.5).float()
-            mask_resized = F.interpolate(mask, size=(32, 32), mode='nearest')
+            imgs = batch.rgb
+            logger.info(f"rgb image shape {imgs.shape}")
+            logger.info(f"mask image shape {mask.shape}") 
+            if feats_type == "dino":
+                raw_feats = model(imgs)
+            elif feats_type == "sph":
+                raw_feats = my_get_feature(imgs, sph_mapper)          
+            B, C, H, W = raw_feats.shape
+            if feats_type == "dino":
+                dino_mean_flattened = dino_mean.view(1, dino_mean.shape[1], 1, 1)
+                dino_flattened = (raw_feats - dino_mean_flattened).view(*raw_feats.shape[:2], -1)
+                dino_flattened = torch.einsum('ij,ajk->aik', dino_proj.T, dino_flattened)
+                raw_feats = dino_flattened.view(B, dino_flattened.shape[1], H, W)
+                
+            logger.info(f"{feats_type} feature map shape {raw_feats.shape}")
+
             batch.cam_tform4x4_obj = batch.cam_tform4x4_obj.detach()
 
             vts2d, vts2d_mask = meshes.verts2d(
@@ -2534,19 +2449,26 @@ class OD3D_SequenceMeshMixin(
                 dim=0,
             )
             net_feats = []
-            s_idx, e_idx = 0, 0
+            mask_resized = F.interpolate(mask, size=(H, W), mode='nearest')     
             for b in range(B):
-                n_pixels = int(mask_resized[b].sum().item())
-                e_idx = s_idx + n_pixels
                 pxl2d=vts2d[b]
+                masked_features, mask_coords = mask_features(raw_feats[b], mask_resized[b])                
+                logger.info(f"masked {feats_type} features: {masked_features.shape}")
+                if visualization:
+                    img_root_path = self.path_preprocess.joinpath(
+                        "feats_img",
+                        self.name_unique,
+                    )
+                    visualize_features(masked_features, mask_coords, feats_type, (H, W), idx, output_dir=img_root_path)
                 from od3d.cv.visual.sample import sample_pxl2d_pts_with_features
                 img_feats = sample_pxl2d_pts_with_features(
-                    raw_feats[s_idx:e_idx,:],
+                    masked_features,
                     pxl2d,
                     mask_resized[b],
                 )
-                s_idx = e_idx
                 net_feats.append(img_feats)
+                idx += 1
+               
             net_feats = torch.stack(net_feats, dim=0)
             C = net_feats.shape[-1]
             
@@ -2577,7 +2499,7 @@ class OD3D_SequenceMeshMixin(
                 )
                   
         mesh_root_path = self.path_preprocess.joinpath(
-            "raw_mesh_feats",
+            "mesh_feats",
             category,
             sequence_name_unique,
             feats_type,
@@ -2601,8 +2523,7 @@ class OD3D_SequenceMeshMixin(
             # meshes_verts_aggregated_features_avg = None
             # meshes_verts_aggregated_features_avg = torch.stack(
             #     [
-            #         agg_feats[(agg_feats != 0).any(dim=1)] # remove masking vertex and background
-            #         .mean(dim=0)
+            #         agg_feats.mean(dim=0)
             #         for agg_feats in meshes_verts_aggregated_features
             #     ],
             #     dim=0,
@@ -2611,8 +2532,7 @@ class OD3D_SequenceMeshMixin(
             # Compute mean and covariance over meshes
             # Concatenate all valid features across all meshes
             all_feats = torch.cat([
-                agg_feats[(agg_feats != 0).any(dim=1)]
-                for agg_feats in meshes_verts_aggregated_features
+                agg_feats for agg_feats in meshes_verts_aggregated_features
             ], dim=0)
 
             if all_feats.shape[0] > 1:
@@ -3881,6 +3801,9 @@ class OD3D_SequenceMeshMixin(
         if isinstance(seq1_feats, list):
             seq1_verts_count = len(seq1_feats)
             seq2_verts_count = len(seq2_feats)
+            print(seq1_verts_count)
+            print(seq2_verts_count)
+            sys.exit()
             dist_verts_seq1_seq2 = (
                 torch.ones(size=(seq1_verts_count, seq2_verts_count)).to(
                     device=device,

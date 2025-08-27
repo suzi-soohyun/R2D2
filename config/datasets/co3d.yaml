@@ -81,16 +81,15 @@ preprocess:
   mesh:
     enabled: False
     override: False
-  raw_feats:
+  pca_dino:
     enabled: False
     override: False
-    load_dino: True
   mesh_feats:
-    enabled: False
+    enabled: True
     override: False
     baseline: False
   mesh_feats_dist:
-    enabled: True
+    enabled: False
     override: False
 
 #sequences_require_good_cam_movement: False

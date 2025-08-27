@@ -1,6 +1,7 @@
 from typing import Tuple
 import torch
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 import os
 
 def pca(features: torch.Tensor, q: int, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -48,11 +49,8 @@ def pca(features: torch.Tensor, q: int, **kwargs) -> Tuple[torch.Tensor, torch.T
     print(f"Reducing PCA components from {features.shape[-1]} to {C_out}.")
     precentage_information = (S[:C_out] ** 2).sum() / (S ** 2).sum()
     print(f"Percentage of information kept: {precentage_information:.2%}")
-
     projection =  V[:, :C_out]
-    pca_features = torch.einsum("NC,CD->ND", features - mean, projection)
-    
-    return pca_features, mean, projection
+    return mean, projection
 
 
 def mask_features(features: torch.Tensor, mask: torch.Tensor):
@@ -66,35 +64,43 @@ def mask_features(features: torch.Tensor, mask: torch.Tensor):
     return masked_features, mask_coords
 
 
-def visualize_features(dino_feat: torch.Tensor, sph_feat: torch.Tensor, mask: torch.Tensor, 
+def visualize_features(raw_feats: torch.Tensor, mask: torch.Tensor, feats_type: str,
                        image_size: Tuple[int, int] = (32, 32), idx: int = 0, output_dir: str = None):
-
-    dino_feat = dino_feat[:, :3]
-    dino_features_norm = (dino_feat - dino_feat.min(dim=0).values) / (dino_feat.max(dim=0).values - dino_feat.min(dim=0).values + 1e-5)
-    sph_features_norm = (sph_feat - sph_feat.min(dim=0).values) / (sph_feat.max(dim=0).values - sph_feat.min(dim=0).values + 1e-5)
-
-    dino_img = torch.zeros((image_size[0], image_size[1], 3), dtype=torch.float32, device=dino_feat.device)
-    sph_img = torch.zeros((image_size[0], image_size[1], 3), dtype=torch.float32, device=sph_feat.device)
     
-    dino_img[mask[:, 0], mask[:, 1]] = dino_features_norm
-    sph_img[mask[:, 0], mask[:, 1]] = sph_features_norm
+    if feats_type == "dino":
+        raw_feats = raw_feats[:, :3]
 
-    assert output_dir is not None, "Output directory must be specified."
+    raw_feats_norm = (raw_feats - raw_feats.min(dim=0).values) / (raw_feats.max(dim=0).values - raw_feats.min(dim=0).values + 1e-5)
+    img = torch.zeros((image_size[0], image_size[1], 3), dtype=torch.float32, device=raw_feats.device)
+    img[mask[:, 0], mask[:, 1]] = raw_feats_norm
 
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    if feats_type == "dino":
+        plt.figure(figsize=(6, 6))
+        plt.axis('off')
+        plt.imshow(img.cpu().numpy())
+        dino_output_dir = f"{output_dir}/dino"
+        if not os.path.exists(dino_output_dir):
+            os.makedirs(dino_output_dir)
+        plt.savefig(f"{dino_output_dir}/masked_features_{idx}.png", bbox_inches="tight", pad_inches=0)
+        print(f"save {dino_output_dir}/masked_features_{idx}.png")
+    elif feats_type == "sph":
+        dino_img_path = f"{output_dir}/dino/masked_features_{idx}.png"
+        dino_img = mpimg.imread(dino_img_path)
 
-    plt.figure(figsize=(12, 6))
-    plt.subplot(1, 2, 1)
-    plt.axis('off')
-    plt.imshow(dino_img.cpu().numpy())
-    plt.title(f'DINO Features after PCA')
+        plt.figure(figsize=(12, 6))
+        plt.subplot(1, 2, 1)
+        plt.axis('off')
+        plt.imshow(dino_img)
+        plt.title(f'DINO Features after PCA')
+  
+        plt.subplot(1, 2, 2)
+        plt.axis('off')
+        plt.imshow(img.cpu().detach().numpy())
+        plt.title(f'Spherical Features')
 
-    plt.subplot(1, 2, 2)
-    plt.axis('off')
-    plt.imshow(sph_img.cpu().detach().numpy())
-    plt.title(f'Spherical Features')
-
-    plt.tight_layout(pad=4.0)
-    plt.savefig(f"{output_dir}/masked_features_{idx}.png")
-    print(f"save {output_dir}/masked_features_{idx}.png")
+        plt.tight_layout(pad=4.0)
+        sph_output_dir = f"{output_dir}/sph"
+        if not os.path.exists(sph_output_dir):
+            os.makedirs(sph_output_dir)
+        plt.savefig(f"{sph_output_dir}/masked_features_{idx}.png")
+        print(f"save {sph_output_dir}/masked_features_{idx}.png")
