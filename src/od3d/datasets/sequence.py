@@ -1652,13 +1652,13 @@ class OD3D_SequenceMeshMixin(
             return mesh.clone()
 
     def preprocess_mesh(self, override=False):
-        if self.fpath_mesh.exists() and not override:
-            logger.warning(f"mesh already exists {self.fpath_mesh}")
-            return
-        else:
-            logger.info(
-                f"preprocessing mesh for {self.name_unique} with type {self.mesh_type}",
-            )
+        # if self.fpath_mesh.exists() and not override:
+        #     logger.warning(f"mesh already exists {self.fpath_mesh}")
+        #     return
+        # else:
+        #     logger.info(
+        #         f"preprocessing mesh for {self.name_unique} with type {self.mesh_type}",
+        #     )
 
         match = re.match(r"([a-z]+)([0-9]+)", self.mesh_type, re.I)
         if match and len(match.groups()) == 2:
@@ -1785,7 +1785,16 @@ class OD3D_SequenceMeshMixin(
                         )
                         logger.info(o3d_obj_mesh_downsampled)
                         vertices_count = len(o3d_obj_mesh_downsampled.vertices)
-
+                    
+                    import open3d as o3d
+                    mesh_vertex_colors = []
+                    if o3d_pcl.has_colors():
+                        pcd_tree = o3d.geometry.KDTreeFlann(o3d_pcl)   
+                        for vertex in o3d_obj_mesh_downsampled.vertices:
+                            [_, idx, _] = pcd_tree.search_knn_vector_3d(vertex, 1)
+                            color = o3d_pcl.colors[idx[0]]
+                            mesh_vertex_colors.append(color)
+                    
                     obj_mesh = Mesh.from_o3d(o3d_obj_mesh_downsampled, device=device)
                 alpha = alpha * 1.3
 
@@ -2077,6 +2086,9 @@ class OD3D_SequenceMeshMixin(
         ## DEBUG BLOCK END
 
         obj_mesh.write_to_file(fpath=self.fpath_mesh)
+        mesh_vertex_colors = torch.tensor(mesh_vertex_colors, device=obj_mesh.device)
+        vtx_pos_color = torch.stack([obj_mesh.verts, mesh_vertex_colors], dim=1)
+        torch.save(vtx_pos_color, f=self.fpath_mesh.with_name("mesh_vertex.pt"))
 
         ## DEBUG BLOCK START
         # scams = 30
@@ -2488,7 +2500,7 @@ class OD3D_SequenceMeshMixin(
                         meshes_verts_aggregated_features[vertex_id].detach().cpu(),
                     ],
                     dim=0,
-                )
+                ) # list [N_v, C] v current vertex_id, N_v the number of images where v is visible
                 
                 meshes_verts_aggregated_viewpoints[vertex_id] = torch.cat(
                     [
@@ -2516,39 +2528,36 @@ class OD3D_SequenceMeshMixin(
                 meshes_verts_aggregated_viewpoints,
                 f=f"{mesh_root_path}/mesh_feats_viewpoint.pt",
             )
-
             logger.info(f"save {feats_type} mesh feats at {mesh_root_path}/mesh_feats.pt")
             logger.info(f"save {feats_type} mesh feats viewpoint at {mesh_root_path}/mesh_feats_viewpoint.pt")
 
-            # meshes_verts_aggregated_features_avg = None
-            # meshes_verts_aggregated_features_avg = torch.stack(
-            #     [
-            #         agg_feats.mean(dim=0)
-            #         for agg_feats in meshes_verts_aggregated_features
-            #     ],
-            #     dim=0,
-            # )            
-            
             # Compute mean and covariance over meshes
             # Concatenate all valid features across all meshes
-            all_feats = torch.cat([
-                agg_feats for agg_feats in meshes_verts_aggregated_features
-            ], dim=0)
-
-            if all_feats.shape[0] > 1:
-                global_mean = all_feats.mean(dim=0)          # shape [C]
-                global_cov = torch.cov(all_feats.T)          # shape [C, C]
-            else:
-                global_mean = torch.zeros(all_feats.shape[1])
-                global_cov = torch.zeros(all_feats.shape[1], all_feats.shape[1])
-                logger.warning("Not enough valid vertices to compute global covariance.")
+            feat_dim = meshes_verts_aggregated_features[0].shape[-1]
+            meshes_verts_aggregated_features_avg = None
+            meshes_verts_aggregated_features_avg = torch.stack(
+                [
+                    agg_feats.mean(dim=0)
+                    for agg_feats in meshes_verts_aggregated_features
+                ], # list [C]
+                dim=0,
+            ) # torch.Tensor [V, C] V: number of vertices, C: feature dimension
+            
+            meshes_verts_aggregated_features_cov = None
+            meshes_verts_aggregated_features_cov = torch.stack(
+                [
+                    torch.cov(feats) if feats.shape[0] > 1 else torch.eye(feat_dim, device=meshes_verts_aggregated_features[0].device)
+                    for feats in meshes_verts_aggregated_features
+                ], # list [C, C]
+                dim=0,
+            ) # torch.Tensor [V, C, C]
 
             # Save mean
-            torch.save(global_mean.detach().cpu(), f=f"{mesh_root_path}/mesh_feats_mean.pt")
+            torch.save(meshes_verts_aggregated_features_avg.detach().cpu(), f=f"{mesh_root_path}/mesh_feats_mean.pt")
             logger.info(f"Saved global mean of mesh features at {mesh_root_path}/mesh_feats_mean.pt")
 
             # Save covariance
-            torch.save(global_cov.detach().cpu(), f=f"{mesh_root_path}/mesh_feats_cov.pt")
+            torch.save(meshes_verts_aggregated_features_cov.detach().cpu(), f=f"{mesh_root_path}/mesh_feats_cov.pt")
             logger.info(f"Saved global covariance matrix of mesh features at {mesh_root_path}/mesh_feats_cov.pt")
             
         else:
@@ -3776,7 +3785,7 @@ class OD3D_SequenceMeshMixin(
         device = get_default_device()
         
         seq_root_path = self.path_preprocess.joinpath(
-            "raw_mesh_feats",
+            "mesh_feats",
             category,
         )
         
@@ -3801,9 +3810,6 @@ class OD3D_SequenceMeshMixin(
         if isinstance(seq1_feats, list):
             seq1_verts_count = len(seq1_feats)
             seq2_verts_count = len(seq2_feats)
-            print(seq1_verts_count)
-            print(seq2_verts_count)
-            sys.exit()
             dist_verts_seq1_seq2 = (
                 torch.ones(size=(seq1_verts_count, seq2_verts_count)).to(
                     device=device,
@@ -3819,7 +3825,6 @@ class OD3D_SequenceMeshMixin(
             ).to(
                 device=device
             )
-            print(seq12_feats_padded.shape)
             F = seq12_feats_padded.shape[-1]
             V = seq12_feats_padded.shape[-2]
             seq12_feats_padded_mask = ~seq12_feats_padded.isnan().all(dim=-1)
@@ -3828,7 +3833,6 @@ class OD3D_SequenceMeshMixin(
             logger.info(
                 f"seq1 verts {seq1_verts_count}, seq2 verts {seq2_verts_count}, seq1 partial {(seq1_verts_count // P)}, viewpoints max {V}",
             )
-   
             for p in range(P):
                 if p < P - 1:
                     seq1_verts_partial = torch.arange(seq1_verts_count)[
@@ -3841,22 +3845,25 @@ class OD3D_SequenceMeshMixin(
                         device=device,
                     )
                 seq1_verts_partial_count = len(seq1_verts_partial)
+                print(seq1_verts_partial)
+                sys.exit()
                 # logger.info(seq1_verts_partial)
                 # Vertices1 x Viewpoints x F
                 seq1_feats_padded = seq12_feats_padded[
                     seq1_verts_partial
                 ].clone()  # 1, 69, 384
+                
+                
                 seq2_feats_padded = seq12_feats_padded[
                     seq1_verts_count:
                 ].clone()  # 452, 69, 384
-
                 seq1_feats_padded_mask = seq12_feats_padded_mask[
                     seq1_verts_partial
                 ].clone()  # 1, 69
                 seq2_feats_padded_mask = seq12_feats_padded_mask[
                     seq1_verts_count:
                 ].clone()  # 452, 69
-
+                
                 # Vertices1 x Viewpoints x Vertices2 x Viewpoints
                 if feature_type == "dino":
                     dists_verts_feats_seq1_seq2 = torch.cdist(
