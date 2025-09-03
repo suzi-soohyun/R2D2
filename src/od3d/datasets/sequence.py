@@ -2310,7 +2310,7 @@ class OD3D_SequenceMeshMixin(
         return total_dino_features_tensor
 
 
-    def preprocess_mesh_feats(self, category, sequence_name_unique, batch_size, feats_type="dino", visualization=False, override=False):
+    def preprocess_mesh_feats(self, category, sequence_name_unique, batch_size, feats_type="dino", override=False):
         # TODO: check if this works
         from od3d.models.model import OD3D_Model
         from od3d.cv.transforms.transform import OD3D_Transform
@@ -2466,6 +2466,7 @@ class OD3D_SequenceMeshMixin(
                 pxl2d=vts2d[b]
                 masked_features, mask_coords = mask_features(raw_feats[b], mask_resized[b])                
                 logger.info(f"masked {feats_type} features: {masked_features.shape}")
+                visualization = False
                 if visualization:
                     img_root_path = self.path_preprocess.joinpath(
                         "feats_img",
@@ -2534,32 +2535,33 @@ class OD3D_SequenceMeshMixin(
             # Compute mean and covariance over meshes
             # Concatenate all valid features across all meshes
             feat_dim = meshes_verts_aggregated_features[0].shape[-1]
-            meshes_verts_aggregated_features_avg = None
             meshes_verts_aggregated_features_avg = torch.stack(
                 [
-                    agg_feats.mean(dim=0)
-                    for agg_feats in meshes_verts_aggregated_features
+                    feats.mean(dim=0) if feats.shape[0] > 0
+                    else torch.full((feat_dim,), float('nan'), device=feats.device, dtype=feats.dtype) # empty vertex
+                    for feats in meshes_verts_aggregated_features
                 ], # list [C]
                 dim=0,
             ) # torch.Tensor [V, C] V: number of vertices, C: feature dimension
+            logger.info(meshes_verts_aggregated_features_avg.shape)
             
-            meshes_verts_aggregated_features_cov = None
             meshes_verts_aggregated_features_cov = torch.stack(
                 [
-                    torch.cov(feats) if feats.shape[0] > 1 else torch.eye(feat_dim, device=meshes_verts_aggregated_features[0].device)
+                    torch.cov(feats.T) if feats.shape[0] > 1 else torch.eye(feat_dim, device=meshes_verts_aggregated_features[0].device)
                     for feats in meshes_verts_aggregated_features
                 ], # list [C, C]
                 dim=0,
             ) # torch.Tensor [V, C, C]
+            logger.info(meshes_verts_aggregated_features_cov.shape)
 
             # Save mean
             torch.save(meshes_verts_aggregated_features_avg.detach().cpu(), f=f"{mesh_root_path}/mesh_feats_mean.pt")
-            logger.info(f"Saved global mean of mesh features at {mesh_root_path}/mesh_feats_mean.pt")
+            logger.info(f"Saved mean of vertex aggregated features at {mesh_root_path}/mesh_feats_mean.pt")
 
             # Save covariance
             torch.save(meshes_verts_aggregated_features_cov.detach().cpu(), f=f"{mesh_root_path}/mesh_feats_cov.pt")
-            logger.info(f"Saved global covariance matrix of mesh features at {mesh_root_path}/mesh_feats_cov.pt")
-            
+            logger.info(f"Saved covariance matrix of vertex aggregated features at {mesh_root_path}/mesh_feats_cov.pt")
+
         else:
             logger.warning(f"Unknown mesh feature reduce_type {reduce_type}.")
 
@@ -2832,7 +2834,7 @@ class OD3D_SequenceMeshMixin(
 
             
             mesh_root_path = self.path_preprocess.joinpath(
-                "raw_mesh_feats",
+                "mesh_feats",
                 self.name_unique,
             )
             if not os.path.exists(mesh_root_path):
@@ -3845,8 +3847,6 @@ class OD3D_SequenceMeshMixin(
                         device=device,
                     )
                 seq1_verts_partial_count = len(seq1_verts_partial)
-                print(seq1_verts_partial)
-                sys.exit()
                 # logger.info(seq1_verts_partial)
                 # Vertices1 x Viewpoints x F
                 seq1_feats_padded = seq12_feats_padded[

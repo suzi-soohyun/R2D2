@@ -1208,9 +1208,9 @@ class OD3D_SequenceDataset(OD3D_Dataset):
                     sequence.preprocess_mesh_feats_baseline(batch_size, override=override)
                 else:
                     sequence.preprocess_mesh_feats(category, sequence_name_unique, batch_size, 
-                                                   feats_type="dino", visualization=True, override=override)
+                                                   feats_type="dino", override=override)
                     sequence.preprocess_mesh_feats(category, sequence_name_unique, batch_size, 
-                                                   feats_type="sph", visualization=True, override=override)
+                                                   feats_type="sph", override=override)
 
 
     def preprocess_mesh_feats_clustering(self, override=False):
