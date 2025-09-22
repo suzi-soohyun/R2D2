@@ -53,7 +53,7 @@ sequences_count_max_per_category:
 block_negative_depth: False
 
 path_raw: /storage/group/dataset_mirrors/01_incoming/CO3D_V2
-path_preprocess: /storage/group/dataset_mirrors/01_incoming/CO3D_V2_Preprocess
+path_preprocess: /storage/user/jiso/CO3D_V2_Preprocess
 
 setup:
   enabled: False
@@ -85,11 +85,11 @@ preprocess:
     enabled: False
     override: False
   mesh_feats:
-    enabled: True
-    override: False
-    baseline: False
-  mesh_feats_dist:
     enabled: False
+    override: False
+    baseline: True
+  mesh_feats_dist:
+    enabled: True
     override: False
 
 #sequences_require_good_cam_movement: False
@@ -258,7 +258,7 @@ categories:
 #  - baseballbat
 #  - baseballglove
 #  - bench
- - bicycle
+#  - bicycle
 #  - book
 #  - bottle
 #  - bowl

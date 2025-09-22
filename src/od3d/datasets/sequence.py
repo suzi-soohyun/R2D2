@@ -2626,7 +2626,7 @@ class OD3D_SequenceMeshMixin(
         down_sample_rate = model.downsample_rate
         if self.use_sph:
             feature_dim = 3
-            if self.use_sph == "sph_excludes_co3d_with_dino":
+            if self.use_sph in ("sph_excludes_co3d_with_dino", "save_raw_features"):
                 feature_dim = 3 + model.out_dim
                 if self.use_sd:
                     feature_dim += 384
@@ -2643,16 +2643,7 @@ class OD3D_SequenceMeshMixin(
             return
         meshes = Meshes.read_from_meshes([mesh], device=device)
 
-        ## DEBUG BLOCK START
-        # cams_tform4x4_world, cams_intr4x4, cams_imgs = self.get_cams(CAM_TFORM_OBJ_SOURCES.PCL)
-        # show_scene(meshes=meshes, cams_tform4x4_world=cams_tform4x4_world, cams_intr4x4=cams_intr4x4, cams_imgs=cams_imgs )
-        ## DEBUG BLOCK END
-
         meshes_verts_aggregated_features = [
-            torch.zeros((0, feature_dim), device="cpu"),
-        ] * meshes.verts.shape[0]
-
-        meshes_verts_aggregated_features_test = [
             torch.zeros((0, feature_dim), device="cpu"),
         ] * meshes.verts.shape[0]
 
@@ -2748,7 +2739,7 @@ class OD3D_SequenceMeshMixin(
                         device=device,
                     )
                     sph_mapper.to(device)
-                if self.use_sph == "sph_excludes_co3d_with_dino":
+                if self.use_sph in ("sph_excludes_co3d_with_dino", "save_raw_features"):
                     sph_mapper = MyDINOMapper(
                         backbone="dinov2_vitb14_frozen_base_no_norm", n_cats=114
                     )
@@ -2761,7 +2752,7 @@ class OD3D_SequenceMeshMixin(
                 sph_mapper = sph_mapper.to(device)
                 from od3d.SphericalMaps.sd_dino.utils.utils_correspondence import resize
                
-                if self.use_sph == "sph_excludes_co3d_with_dino":
+                if self.use_sph in ("sph_excludes_co3d_with_dino", "save_raw_features"):
                     feats2d_net = my_get_feature(batch.rgb, sph_mapper)
                     feats2d_net = feats2d_net / torch.norm(feats2d_net, dim=1, keepdim=True)
                 
@@ -2831,15 +2822,6 @@ class OD3D_SequenceMeshMixin(
                 [net_feats[:, :N][vts2d_mask], net_feats[:, N:].reshape(-1, C)],
                 dim=0,
             )
-
-            
-            mesh_root_path = self.path_preprocess.joinpath(
-                "mesh_feats",
-                self.name_unique,
-            )
-            if not os.path.exists(mesh_root_path):
-                os.makedirs(mesh_root_path)
-            
             
             for b, vertex_id in enumerate(batch_vts_ids):
                 #logger.info(f"net_feats[b : b + 1]: {net_feats[b : b + 1].shape}")
@@ -2863,23 +2845,15 @@ class OD3D_SequenceMeshMixin(
         logger.info(f"type of meshes_verts_aggregated_features: {type(meshes_verts_aggregated_features)}")
         logger.info(f"type of meshes_verts_aggregated_viewpoints: {type(meshes_verts_aggregated_viewpoints)}")
         
-        logger.info(f"save mesh feats at {self.fpath_mesh_feats}")
-        logger.info(f"save mesh feats viewpoint at {self.fpath_mesh_feats_viewpoint}")
-        
         if reduce_type == "acc":
-            if not self.fpath_mesh_feats.parent.exists():
-                self.fpath_mesh_feats.parent.mkdir(parents=True, exist_ok=True)
+            mesh_root_path = self.path_preprocess.joinpath(
+                "mesh_feats_baseline",
+                self.name_unique,
+            )
+            if not os.path.exists(mesh_root_path):
+                os.makedirs(mesh_root_path)
             torch.save(meshes_verts_aggregated_features, f=f"{mesh_root_path}/mesh_feats.pt")
-            torch.save(
-                meshes_verts_aggregated_viewpoints,
-                f=f"{mesh_root_path}/mesh_feats_viewpoint.pt",
-            )
-            # meshes_verts_agdgregated_features.clear()
-            avg_path = self.get_fpath_mesh_feats(
-                mesh_feats_type="M_dinov2_vitb14_frozen_base_T_centerzoom512_R_avg"
-            )
-            if not avg_path.parent.exists():
-                avg_path.parent.mkdir(parents=True, exist_ok=True)
+            
             meshes_verts_aggregated_features_avg = torch.stack(
                 [
                     agg_feats.mean(dim=0)
@@ -2889,9 +2863,9 @@ class OD3D_SequenceMeshMixin(
             )
             torch.save(
                 meshes_verts_aggregated_features_avg.detach().cpu(),
-                f=avg_path,
+                f=f"{mesh_root_path}/mesh_feats_mean.pt",
             )
-
+            logger.info(f"save mesh feats at {mesh_root_path}/mesh_feats_mean.pt")
             del meshes_verts_aggregated_features_avg
         elif reduce_type == "avg":
             if not self.fpath_mesh_feats.parent.exists():
@@ -3782,294 +3756,63 @@ class OD3D_SequenceMeshMixin(
         del seq2_feats
         torch.cuda.empty_cache()
 
-
-    def preprocess_mesh_feats_dist(self, category, sequence1, sequence2, feature_type, override=False):
+    def preprocess_mesh_feats_dist(self, root_path, category, sequence1, sequence2, override=False):
+        from od3d.datasets.ot.optimal_transport import calculate_distance_matrix, save_num_matches, load_vertices
         device = get_default_device()
         
-        seq_root_path = self.path_preprocess.joinpath(
-            "mesh_feats",
-            category,
-        )
+        dino_feats_dist = calculate_distance_matrix(root_path, category, sequence1, sequence2, "dino")
+        sph_feats_dist = calculate_distance_matrix(root_path, category, sequence1, sequence2, "sph")
+        total_dist = dino_feats_dist + sph_feats_dist
+
+        alpha = torch.tensor(1.0)
+        iters = 30
+        threshold = 0.001
+        dist_matrix = torch.tensor(total_dist, dtype=torch.float32).unsqueeze(0)
+        scores = 1 - dist_matrix
         
-        seq1_feats = torch.load(os.path.join(seq_root_path, sequence1, feature_type, 'mesh_feats.pt'))
-        seq2_feats = torch.load(os.path.join(seq_root_path, sequence2, feature_type, 'mesh_feats.pt'))
+        num_matches_list, matched_indices_list, scores_ot = save_num_matches(scores, alpha, iters, threshold)
 
-        dist_verts_mesh_feats_reduce_type = self.mesh_feats_dist_reduce_type
-        match = re.match(
-            r"(pca)?([0-9]*)_?([a-z_]*)",
-            dist_verts_mesh_feats_reduce_type,
-            re.I,
-        )
+        seq1_vtx_pose, seq1_vtx_colors = load_vertices(root_path, category, sequence1)
+        seq2_vtx_pose, seq2_vtx_colors = load_vertices(root_path, category, sequence2)
+        seq1_pose = seq1_vtx_pose.detach().cpu().numpy()      # shape: (N, 3)
+        seq1_color = seq1_vtx_colors.detach().cpu().numpy()    # shape: (N, 3)
 
-        if match:
-            embed_type, embed_dim, reduce_type = match.groups()
-            if len(embed_dim) > 0:
-                embed_dim = int(embed_dim)
-        else:
-            msg = f"could not retrieve embed_type, embed_dim, and reduce type from mesh feats type {dist_verts_mesh_feats_reduce_type}"
-            raise Exception(msg)
+        seq2_pose = seq2_vtx_pose.detach().cpu().numpy()
+        seq2_color = seq2_vtx_colors.detach().cpu().numpy()
 
-        if isinstance(seq1_feats, list):
-            seq1_verts_count = len(seq1_feats)
-            seq2_verts_count = len(seq2_feats)
-            dist_verts_seq1_seq2 = (
-                torch.ones(size=(seq1_verts_count, seq2_verts_count)).to(
-                    device=device,
-                )
-                * torch.inf
-            )
+        match0, match1 = [], []
+        for i, j in matched_indices_list[-1]:
+            match0.append(seq1_pose[i.item()])
+            match1.append(seq2_pose[j.item()])
 
-            # Vertices1+2 x Viewpoints x F
-            seq12_feats_padded = torch.nn.utils.rnn.pad_sequence(
-                seq1_feats + seq2_feats,
-                batch_first=True,
-                padding_value=torch.nan,
-            ).to(
-                device=device
-            )
-            F = seq12_feats_padded.shape[-1]
-            V = seq12_feats_padded.shape[-2]
-            seq12_feats_padded_mask = ~seq12_feats_padded.isnan().all(dim=-1)
-            
-            P = seq1_verts_count  # ensures that 11 GB are enough    # 452
-            logger.info(
-                f"seq1 verts {seq1_verts_count}, seq2 verts {seq2_verts_count}, seq1 partial {(seq1_verts_count // P)}, viewpoints max {V}",
-            )
-            for p in range(P):
-                if p < P - 1:
-                    seq1_verts_partial = torch.arange(seq1_verts_count)[
-                        (seq1_verts_count // P) * p : (seq1_verts_count // P) * (p + 1)
-                    ].to(device=device)
-                else:
-                    seq1_verts_partial = torch.arange(seq1_verts_count)[
-                        (seq1_verts_count // P) * p :
-                    ].to(
-                        device=device,
-                    )
-                seq1_verts_partial_count = len(seq1_verts_partial)
-                # logger.info(seq1_verts_partial)
-                # Vertices1 x Viewpoints x F
-                seq1_feats_padded = seq12_feats_padded[
-                    seq1_verts_partial
-                ].clone()  # 1, 69, 384
-                
-                
-                seq2_feats_padded = seq12_feats_padded[
-                    seq1_verts_count:
-                ].clone()  # 452, 69, 384
-                seq1_feats_padded_mask = seq12_feats_padded_mask[
-                    seq1_verts_partial
-                ].clone()  # 1, 69
-                seq2_feats_padded_mask = seq12_feats_padded_mask[
-                    seq1_verts_count:
-                ].clone()  # 452, 69
-                
-                # Vertices1 x Viewpoints x Vertices2 x Viewpoints
-                if feature_type == "dino":
-                    dists_verts_feats_seq1_seq2 = torch.cdist(
-                        seq1_feats_padded.reshape(-1, F)[None,],
-                        seq2_feats_padded.reshape(-1, F)[None,],
-                    ).reshape(
-                        seq1_verts_partial_count,
-                        V,
-                        seq2_verts_count,
-                        V,
-                    )
-                if feature_type == "sph":
-                    seq1_feats_padded_norm = seq1_feats_padded / seq1_feats_padded.norm(p=2, dim=-1, keepdim=True)
-                    seq2_feats_padded_norm = seq2_feats_padded / seq2_feats_padded.norm(p=2, dim=-1, keepdim=True)
-                    cos_sim = torch.einsum(
-                        "bnf,bkf->bnk",
-                        seq1_feats_padded_norm.reshape(-1, F)[None,],
-                        seq2_feats_padded_norm.reshape(-1, F)[None,],
-                    )
-                    cos_dist = 1 - cos_sim
-                    dists_verts_feats_seq1_seq2 = cos_dist.reshape(
-                        seq1_verts_partial_count,
-                        V,
-                        seq2_verts_count,
-                        V,
-                    )
-                dists_verts_feats_seq1_seq2_mask = (
-                    seq1_feats_padded_mask[:, :, None, None]
-                    * seq2_feats_padded_mask[None, None, :, :]
-                )
-                dist_verts_seq1_seq2_inf_mask = (
-                    dists_verts_feats_seq1_seq2_mask.permute(0, 2, 1, 3)
-                    .flatten(
-                        2,
-                    )
-                    .sum(
-                        dim=-1,
-                    )
-                    == 0.0
-                )
+        match0 = np.array(match0)
+        match1 = np.array(match1)
 
-                if (
-                    reduce_type == OD3D_MESH_FEATS_DIST_REDUCE_TYPES.MIN
-                    or reduce_type == OD3D_MESH_FEATS_DIST_REDUCE_TYPES.NEGDOT_MIN
-                ):
-                    # replace nan values with inf
-                    dists_verts_feats_seq1_seq2 = (
-                        dists_verts_feats_seq1_seq2.nan_to_num(torch.inf)
-                    )
-                    dist_verts_seq1_seq2[seq1_verts_partial] = (
-                        dists_verts_feats_seq1_seq2.permute(
-                            0,
-                            2,
-                            1,
-                            3,
-                        )
-                        .flatten(
-                            2,
-                        )
-                        .min(dim=-1)
-                        .values
-                    )
-                elif (
-                    reduce_type == OD3D_MESH_FEATS_DIST_REDUCE_TYPES.AVG
-                    or reduce_type == OD3D_MESH_FEATS_DIST_REDUCE_TYPES.NEGDOT_AVG
-                ):
-                    dists_verts_feats_seq1_seq2 = (
-                        dists_verts_feats_seq1_seq2.nan_to_num(0.0)
-                    )
-                    dists_verts_feats_seq1_seq2_mask = (
-                        dists_verts_feats_seq1_seq2_mask.nan_to_num(0.0)
-                    )
-
-                    dist_verts_seq1_seq2_partial = (
-                        dists_verts_feats_seq1_seq2.permute(0, 2, 1, 3).flatten(
-                            2,
-                        )
-                        * dists_verts_feats_seq1_seq2_mask.permute(0, 2, 1, 3).flatten(
-                            2,
-                        )
-                    ).sum(dim=-1) / (
-                        dists_verts_feats_seq1_seq2_mask.permute(
-                            0,
-                            2,
-                            1,
-                            3,
-                        )
-                        .flatten(2)
-                        .sum(
-                            dim=-1,
-                        )
-                        + 1e-10
-                    )
-                    dist_verts_seq1_seq2_partial[
-                        dist_verts_seq1_seq2_inf_mask
-                    ] = torch.inf
-                    dist_verts_seq1_seq2[
-                        seq1_verts_partial
-                    ] = dist_verts_seq1_seq2_partial
-                    del dist_verts_seq1_seq2_partial
-                elif (
-                    reduce_type == OD3D_MESH_FEATS_DIST_REDUCE_TYPES.MIN_AVG
-                    or reduce_type == OD3D_MESH_FEATS_DIST_REDUCE_TYPES.NEGDOT_MIN_AVG
-                ):
-                    dists_verts_feats_seq1_seq2 = (
-                        dists_verts_feats_seq1_seq2.nan_to_num(torch.inf)
-                    )
-                    dists_verts_feats_seq1_seq2_mask = (
-                        dists_verts_feats_seq1_seq2_mask.nan_to_num(0.0)
-                    )
-                    dist_verts_seq1_seq2_partial = (
-                        (
-                            dists_verts_feats_seq1_seq2.permute(
-                                0,
-                                2,
-                                1,
-                                3,
-                            )
-                            .min(
-                                dim=-1,
-                            )
-                            .values.nan_to_num(
-                                posinf=0.0,
-                            )
-                            * dists_verts_feats_seq1_seq2_mask.permute(
-                                0,
-                                2,
-                                1,
-                                3,
-                            )[:, :, :, 0]
-                        ).sum(dim=-1)
-                        + (
-                            dists_verts_feats_seq1_seq2.permute(
-                                0,
-                                2,
-                                1,
-                                3,
-                            )
-                            .min(
-                                dim=-2,
-                            )
-                            .values.nan_to_num(
-                                posinf=0.0,
-                            )
-                            * dists_verts_feats_seq1_seq2_mask.permute(
-                                0,
-                                2,
-                                1,
-                                3,
-                            )[:, :, 0, :]
-                        ).sum(dim=-1)
-                    ) / (
-                        dists_verts_feats_seq1_seq2_mask.permute(0, 2, 1, 3)[
-                            :,
-                            :,
-                            0,
-                            :,
-                        ].sum(
-                            dim=-1,
-                        )
-                        + dists_verts_feats_seq1_seq2_mask.permute(
-                            0,
-                            2,
-                            1,
-                            3,
-                        )[
-                            :,
-                            :,
-                            :,
-                            0,
-                        ].sum(dim=-1)
-                        + 1e-10
-                    )
-                    dist_verts_seq1_seq2_partial[
-                        dist_verts_seq1_seq2_inf_mask
-                    ] = torch.inf
-                    dist_verts_seq1_seq2[
-                        seq1_verts_partial
-                    ] = dist_verts_seq1_seq2_partial
-                    del dist_verts_seq1_seq2_partial
-                else:
-                    logger.warning(f"Unknown reduce type {reduce_type}.")
-
-                del dists_verts_feats_seq1_seq2
-                del dists_verts_feats_seq1_seq2_mask
-                del dist_verts_seq1_seq2_inf_mask
-                del seq1_verts_partial
-            del seq12_feats_padded
-            del seq12_feats_padded_mask
-            seq1_feats.clear()
-            seq2_feats.clear()
-            
-        fpath_dist_verts_mesh_feats = self.path_preprocess.joinpath(
-            "raw_mesh_feats_dist",
+        from od3d.datasets.ot.ransac_for_ot import run_ransac, decide_threshold
+        from od3d.datasets.ot.visualize_ot import visualize_transformed_meshes_after_ot
+        from od3d.datasets.ot.visualize_ot import visualize_correspondences_matching_after_ot
+        threshold = decide_threshold(match0)
+        best_inliers, best_T = run_ransac(match0, match1, threshold, minimal_correspondences = 4, iter = 2000)
+        final_best_inliers, final_best_T = run_ransac(match0[best_inliers], match1[best_inliers],  
+                                                      minimal_correspondences = 4, iter = 2000)
+        
+        vis_root = self.path_preprocess.joinpath(
+            "vis_ot",
             category,
             sequence1,
             sequence2,
-            feature_type,
-            "mesh_feats_dist.pt"
         )
-        if not fpath_dist_verts_mesh_feats.parent.exists():
-            fpath_dist_verts_mesh_feats.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(dist_verts_seq1_seq2.detach().cpu(), fpath_dist_verts_mesh_feats)
-        logger.info(f"save {feature_type} mesh feats dist at {fpath_dist_verts_mesh_feats}")
-        del dist_verts_seq1_seq2
-        del seq1_feats
-        del seq2_feats
+        if not os.path.exists(vis_root):
+            os.makedirs(vis_root)
+        tresult_path = os.path.join(vis_root, "transformed_meshes.ply")
+        mresult_path = os.path.join(vis_root, "correspondences_matching.png")
+        visualize_transformed_meshes_after_ot(seq1_pose, seq2_pose, final_best_T, tresult_path)
+        # visualize_correspondences_matching_after_ot(
+        #     seq1_pose, seq1_color,
+        #     seq2_pose, seq2_color,
+        #     match0[final_best_inliers], match1[final_best_inliers],
+        #     mresult_path
+        # )
+
         torch.cuda.empty_cache()
 

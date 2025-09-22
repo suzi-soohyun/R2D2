@@ -1206,11 +1206,11 @@ class OD3D_SequenceDataset(OD3D_Dataset):
 
                 if baseline:
                     sequence.preprocess_mesh_feats_baseline(batch_size, override=override)
-                else:
-                    sequence.preprocess_mesh_feats(category, sequence_name_unique, batch_size, 
-                                                   feats_type="dino", override=override)
-                    sequence.preprocess_mesh_feats(category, sequence_name_unique, batch_size, 
-                                                   feats_type="sph", override=override)
+
+                sequence.preprocess_mesh_feats(category, sequence_name_unique, batch_size, 
+                                                feats_type="dino", override=override)
+                sequence.preprocess_mesh_feats(category, sequence_name_unique, batch_size, 
+                                                feats_type="sph", override=override)
 
 
     def preprocess_mesh_feats_clustering(self, override=False):
@@ -1360,21 +1360,18 @@ class OD3D_SequenceDataset(OD3D_Dataset):
             for sequence_name_unique1 in sequences_names_unique:
                 name_unique1 = category + "/" + sequence_name_unique1
                 for sequence_name_unique2 in sequences_names_unique:
-                    sequence1 = self.get_sequence_by_name_unique(
-                        name_unique=name_unique1,
-                    )
-                    sequence1.preprocess_mesh_feats_dist(
-                        category, 
-                        sequence_name_unique1, 
-                        sequence_name_unique2,
-                        feature_type="dino", 
-                        override=override)
-                    sequence1.preprocess_mesh_feats_dist(
-                        category, 
-                        sequence_name_unique1, 
-                        sequence_name_unique2,
-                        feature_type="sph", 
-                        override=override)
+                    if sequence_name_unique1 != sequence_name_unique2:
+                        sequence1 = self.get_sequence_by_name_unique(
+                            name_unique=name_unique1,
+                        )
+                        root_path = self.path_preprocess
+                        sequence1.preprocess_mesh_feats_dist(
+                            root_path,
+                            category, 
+                            sequence_name_unique1, 
+                            sequence_name_unique2,
+                            override=override)
+                    
 
     def preprocess_mesh_feats_dist_mixture(self, override=False):
         logger.info("preprocess mesh feats dist...")
