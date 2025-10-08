@@ -250,8 +250,8 @@ class CO3D(OD3D_SequenceDataset):
             logger.info(f"Removing previous CO3D")
             shutil.rmtree(path_raw)
 
-        if path_raw.exists() and not config.setup.override:
-            logger.info(f"Found CO3D dataset at {path_raw}")
+        # if path_raw.exists() and not config.setup.override:
+        #     logger.info(f"Found CO3D dataset at {path_raw}")
         else:
             path_co3d_repo = path_raw.joinpath("co3d")
             path_co3d_repo.mkdir(parents=True, exist_ok=True)

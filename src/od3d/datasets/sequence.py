@@ -2165,7 +2165,7 @@ class OD3D_SequenceMeshMixin(
             and (mesh_feats_type is None or mesh_feats_type == self.mesh_feats_type)
         ):
             self.mesh_feats = mesh_feats
-        return fpath_mesh_feats
+        return mesh_feats
 
     def read_mesh_feats_viewpoint(
         self,
@@ -2341,6 +2341,20 @@ class OD3D_SequenceMeshMixin(
             "pca_dino",
             category
         )
+        
+        mesh_root_path = self.path_preprocess.joinpath(
+            "mesh_feats",
+            category,
+            sequence_name_unique,
+            feats_type,
+        )
+        fpath_mesh_feats = f"{mesh_root_path}/mesh_feats.pt"
+        if (
+            not override
+            and os.path.exists(fpath_mesh_feats)
+        ):
+            logger.info(f"mesh feats already exist at {fpath_mesh_feats}")
+            return
 
         # if self.mesh_feats_type == FEATURE_TYPES.
         model = OD3D_Model.create_by_name(model_name)
@@ -2511,12 +2525,6 @@ class OD3D_SequenceMeshMixin(
                     dim=0,
                 )
                   
-        mesh_root_path = self.path_preprocess.joinpath(
-            "mesh_feats",
-            category,
-            sequence_name_unique,
-            feats_type,
-        )
         if not os.path.exists(mesh_root_path):
             os.makedirs(mesh_root_path)
             
@@ -2524,12 +2532,12 @@ class OD3D_SequenceMeshMixin(
         logger.info(f"type of meshes_verts_aggregated_viewpoints: {type(meshes_verts_aggregated_viewpoints)}")
         
         if reduce_type == "acc":
-            torch.save(meshes_verts_aggregated_features, f=f"{mesh_root_path}/mesh_feats.pt")
+            torch.save(meshes_verts_aggregated_features, f=fpath_mesh_feats)
             torch.save(
                 meshes_verts_aggregated_viewpoints,
                 f=f"{mesh_root_path}/mesh_feats_viewpoint.pt",
             )
-            logger.info(f"save {feats_type} mesh feats at {mesh_root_path}/mesh_feats.pt")
+            logger.info(f"save {feats_type} mesh feats at {fpath_mesh_feats}")
             logger.info(f"save {feats_type} mesh feats viewpoint at {mesh_root_path}/mesh_feats_viewpoint.pt")
 
             # Compute mean and covariance over meshes
@@ -2846,14 +2854,21 @@ class OD3D_SequenceMeshMixin(
         logger.info(f"type of meshes_verts_aggregated_viewpoints: {type(meshes_verts_aggregated_viewpoints)}")
         
         if reduce_type == "acc":
-            mesh_root_path = self.path_preprocess.joinpath(
-                "mesh_feats_baseline",
-                self.name_unique,
-            )
-            if not os.path.exists(mesh_root_path):
-                os.makedirs(mesh_root_path)
-            torch.save(meshes_verts_aggregated_features, f=f"{mesh_root_path}/mesh_feats.pt")
+            if not self.fpath_mesh_feats.parent.exists():
+                self.fpath_mesh_feats.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(meshes_verts_aggregated_features, f=self.fpath_mesh_feats)
+            logger.info(f"save mesh feats at {self.fpath_mesh_feats}")
             
+            torch.save(
+                meshes_verts_aggregated_viewpoints,
+                f=self.fpath_mesh_feats_viewpoint,
+            )
+            # meshes_verts_aggregated_features.clear()
+            avg_path = self.get_fpath_mesh_feats(
+                mesh_feats_type="M_dinov2_vitb14_frozen_base_T_centerzoom512_R_avg"
+            )
+            if not avg_path.parent.exists():
+                avg_path.parent.mkdir(parents=True, exist_ok=True)
             meshes_verts_aggregated_features_avg = torch.stack(
                 [
                     agg_feats.mean(dim=0)
@@ -2863,9 +2878,9 @@ class OD3D_SequenceMeshMixin(
             )
             torch.save(
                 meshes_verts_aggregated_features_avg.detach().cpu(),
-                f=f"{mesh_root_path}/mesh_feats_mean.pt",
+                f=avg_path,
             )
-            logger.info(f"save mesh feats at {mesh_root_path}/mesh_feats_mean.pt")
+
             del meshes_verts_aggregated_features_avg
         elif reduce_type == "avg":
             if not self.fpath_mesh_feats.parent.exists():
@@ -3425,7 +3440,7 @@ class OD3D_SequenceMeshMixin(
         del seq2_feats
         torch.cuda.empty_cache()
 
-    def preprocess_mesh_feats_dist_baseline(self, sequence: OD3D_Sequence, override=False):
+    def preprocess_mesh_feats_dist(self, sequence: OD3D_Sequence, override=False):
         if self.start_frame_id == sequence.start_frame_id:
             fpath_dist_verts_mesh_feats = self.get_fpath_mesh_feats_dist(sequence)
         else:
@@ -3756,7 +3771,7 @@ class OD3D_SequenceMeshMixin(
         del seq2_feats
         torch.cuda.empty_cache()
 
-    def preprocess_mesh_feats_dist(self, root_path, category, sequence1, sequence2, override=False):
+    def preprocess_mesh_feats_dist_with_ot(self, root_path, category, sequence1, sequence2, override=False):
         from od3d.datasets.ot.optimal_transport import calculate_distance_matrix, save_num_matches, load_vertices
         device = get_default_device()
         

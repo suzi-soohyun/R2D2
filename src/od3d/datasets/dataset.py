@@ -1347,7 +1347,7 @@ class OD3D_SequenceDataset(OD3D_Dataset):
                             override=override,
                         )
 
-    def preprocess_mesh_feats_dist(self, override=False):
+    def preprocess_mesh_feats_dist(self, override=False, baseline=False):
         logger.info("preprocess mesh feats dist...")
         from od3d.datasets.sequence_meta import OD3D_SequenceMeta
 
@@ -1365,7 +1365,18 @@ class OD3D_SequenceDataset(OD3D_Dataset):
                             name_unique=name_unique1,
                         )
                         root_path = self.path_preprocess
-                        sequence1.preprocess_mesh_feats_dist(
+                        
+                        if baseline:
+                            name_unique2 = category + "/" + sequence_name_unique2
+                            sequence2 = self.get_sequence_by_name_unique(
+                                name_unique=name_unique2,
+                            )
+                            sequence1.preprocess_mesh_feats_dist(
+                                sequence=sequence2,
+                                override=override,
+                            )
+        
+                        sequence1.preprocess_mesh_feats_dist_with_ot(
                             root_path,
                             category, 
                             sequence_name_unique1, 
@@ -1553,7 +1564,8 @@ class OD3D_SequenceDataset(OD3D_Dataset):
                 False,
             ):
                 override = config_preprocess.mesh_feats_dist.get("override", False)
-                self.preprocess_mesh_feats_dist(override=override)
+                baseline = config_preprocess.mesh_feats.get("baseline", False)
+                self.preprocess_mesh_feats_dist(override=override, baseline=baseline)
             if (
                 key == "mesh_feats_pairwise"
                 and config_preprocess.mesh_feats_pairwise.get(

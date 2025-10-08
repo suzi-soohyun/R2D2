@@ -283,7 +283,7 @@ if __name__ == "__main__":
     # for temperature in [1.0, 10.0]:
     temperature = 10.0
     print("THE TEMPERATURE IS ", temperature)
-    base_path = "/CT/3D_DST_Scene/work/od3d"
+    base_path = "/storage/user/jiso/output"
     weight_path = f"scripts/vis_meshes/align_with_unannotated/category_{category}/ratio_25/threshold_90/use_sph_sph_excludes_co3d_with_dino_mixing_ratio_0.2/pgo_init/weighted_matrics.pt"
     rotation_path = f"scripts/vis_meshes/align_with_unannotated/category_{category}/ratio_25/threshold_90/use_sph_sph_excludes_co3d_with_dino_mixing_ratio_0.2/pgo_init/input_alignments.pt"
     annotated_idx_path = f"scripts/vis_meshes/align_with_unannotated/category_{category}/ratio_25/threshold_90/use_sph_sph_excludes_co3d_with_dino_mixing_ratio_0.2/pgo_init/annotated_idx.pt"

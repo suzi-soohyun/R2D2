@@ -7,6 +7,6 @@ path_od3d: /scratch/sommerl/od3d
 path_datasets_raw: /misc/lmbraid19/sommerl/datasets # sshfs maythux@192.168.xx.xx:/home/maythuxServ/Mounted ~/remoteDir
 path_datasets_preprocess: /misc/lmbraid19/sommerl/datasets # for student: /misc/student/srinivap/datasets_preprocess
 path_exps: /misc/lmbraid19/sommerl/exps
-path_cudas: /scratch/sommerl/cudas # # should be cuda-11.7
+path_cuda: /scratch/sommerl/cudas # # should be cuda-11.7
 url_od3d: git@github.com:Generative-Vision-Robust-Learning/od3d.git
 renderer: open3d

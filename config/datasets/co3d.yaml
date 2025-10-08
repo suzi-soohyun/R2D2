@@ -85,12 +85,13 @@ preprocess:
     enabled: False
     override: False
   mesh_feats:
-    enabled: False
+    enabled: True
     override: False
     baseline: True
   mesh_feats_dist:
-    enabled: True
+    enabled: False
     override: False
+    baseline: True
 
 #sequences_require_good_cam_movement: False
 #sequences_require_pcl: True # False

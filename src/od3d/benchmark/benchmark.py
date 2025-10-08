@@ -20,13 +20,19 @@ class OD3D_Benchmark:
         self.logging_dir.mkdir(parents=True, exist_ok=True)
         if self.config.logger.use_wandb:
             wandb.login()
+            # formatted_name = (
+            #     f"category_{self.config.train_datasets.labeled.categories}"
+            #     f"_partial_ratio_{self.config.train_datasets.labeled.partial_ratio}"
+            #     f"_start_frame_id_{self.config.train_datasets.labeled.start_frame_id}"
+            #     f"_use_sph_{str(self.config.train_datasets.labeled.use_sph)}"
+            #     f"_flipped_feature_{str(self.config.train_datasets.labeled.use_flipped_feature)}"
+            #     f"_use_sd_{str(self.config.train_datasets.labeled.use_sd)}"
+            # )
+            model_type = "baseline"
             formatted_name = (
-                f"category_{self.config.train_datasets.labeled.categories}"
+                f"{model_type}"
+                f"_category_{self.config.train_datasets.labeled.categories}"
                 f"_partial_ratio_{self.config.train_datasets.labeled.partial_ratio}"
-                f"_start_frame_id_{self.config.train_datasets.labeled.start_frame_id}"
-                f"_use_sph_{str(self.config.train_datasets.labeled.use_sph)}"
-                f"_flipped_feature_{str(self.config.train_datasets.labeled.use_flipped_feature)}"
-                f"_use_sd_{str(self.config.train_datasets.labeled.use_sd)}"
             )
             wandb.init(
                 project=self.config.logger.wandb_project_name,

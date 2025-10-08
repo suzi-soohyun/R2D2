@@ -386,7 +386,6 @@ class NeMo_Align3D(OD3D_Method):
                                     fits_count=self.config.ransac.samples,
                                     fit_pts_count=4,
                                 )
-                                print("ref_tform4x4_src:", ref_tform4x4_src)
 
                                 _, pose_dist_geo, pose_dist_appear = score_tform4x4_fit(
                                     pts=pts_src,
@@ -414,6 +413,7 @@ class NeMo_Align3D(OD3D_Method):
                                     s,
                                 ] = pred_ref_tform_src
                             else:
+                                ##HERE
                                 ref_vertices_mask = (
                                     ref_sequences_mesh_ids_for_verts == ref_mesh_id
                                 )
@@ -422,89 +422,77 @@ class NeMo_Align3D(OD3D_Method):
                                 logger.info(
                                     f"category: {category}, pts-src: {pts_src.shape}, pts-ref: {pts_ref.shape}",
                                 )
-
-                                dist_ref_src = (
-                                    ref_sequences[ref_mesh_id]
-                                    .read_mesh_feats_dist(
-                                        src_sequences[src_mesh_id],
-                                    )
-                                    .to(device=self.device, dtype=dtype)
-                                )  # 452, 452
-                                # division by two to normalize to 0. - 1.
-                                dist_ref_src = dist_ref_src / 2.0
-
+                                
+                                # Optimal Transport
+                                from od3d.datasets.ot.optimal_transport import calculate_distance_matrix, save_num_matches, load_vertices
+                                
+                                root_path = ref_sequences[ref_mesh_id].path_preprocess
+                                category = ref_sequences[ref_mesh_id].name_unique.split('/')[0]
+                                sequence1 = ref_sequences[ref_mesh_id].name_unique.split('/')[1]
+                                sequence2 = src_sequences[src_mesh_id].name_unique.split('/')[1]                             
+                                
+                                from od3d.datasets.ot.optimal_transport import ot_based_ransac
                                 (
                                     src_tform4x4_ref,
-                                    models,
-                                    scores,
                                     best_correspondence,
                                     best_ref_correspondence,
-                                    best_geo_dist,
-                                    best_appear_dist,
                                     src_tform4x4_ref_score,
-                                ) = ransac(
-                                    pts=pts_ref,
-                                    fit_func=partial(
-                                        fit_tform4x4,
-                                        pts_ref=pts_src,
-                                        dist_ref=dist_ref_src,
-                                    ),
-                                    score_func=partial(
-                                        score_tform4x4_fit,
-                                        pts_ref=pts_src,
-                                        dist_app_ref=dist_ref_src,
-                                        dist_app_weight=self.config.dist_appear_weight,
-                                        geo_cyclic_weight_temp=self.config.geo_cyclic_weight_temp,
-                                        app_cyclic_weight_temp=self.config.app_cyclic_weight_temp,
-                                        score_perc=self.config.ransac.score_perc,
-                                    ),
-                                    fits_count=self.config.ransac.samples,
-                                    fit_pts_count=4,
-                                )
-                                from od3d.cv.visual.correspondences_vis import (
-                                    save_visualization_mesh,
-                                    save_visualization_mesh_with_color,
+                                    dist_ref_src,
+                                ) = ot_based_ransac(
+                                    root_path=root_path,
+                                    category=category,
+                                    sequence1=sequence1,
+                                    sequence2=sequence2,
                                 )
 
-                                partial_ratio_for_saving = src_sequences[
-                                    src_mesh_id
-                                ].partial_ratio
-                                start_frame_id_for_saving = src_sequences[
-                                    src_mesh_id
-                                ].start_frame_id
-                                use_sph = src_sequences[src_mesh_id].use_sph
-                                sfm_type_for_saving = src_sequences[
-                                    src_mesh_id
-                                ].sfm_type
-                                pcl_type_for_saving = src_sequences[
-                                    src_mesh_id
-                                ].pcl_type
+                                print(dist_ref_src.shape)
+                                print("ref_tform4x4_src:", src_tform4x4_ref)
+                                src_tform4x4_ref = src_tform4x4_ref.to(device=self.device)
 
-                                use_sd = src_sequences[src_mesh_id].use_sd
+                                # from od3d.cv.visual.correspondences_vis import (
+                                #     save_visualization_mesh,
+                                #     save_visualization_mesh_with_color,
+                                # )
+
+                                # partial_ratio_for_saving = src_sequences[
+                                #     src_mesh_id
+                                # ].partial_ratio
+                                # start_frame_id_for_saving = src_sequences[
+                                #     src_mesh_id
+                                # ].start_frame_id
+                                # use_sph = src_sequences[src_mesh_id].use_sph
+                                # sfm_type_for_saving = src_sequences[
+                                #     src_mesh_id
+                                # ].sfm_type
+                                # pcl_type_for_saving = src_sequences[
+                                #     src_mesh_id
+                                # ].pcl_type
+
+                                # use_sd = src_sequences[src_mesh_id].use_sd
                                 src_name = src_sequences[src_mesh_id].name
                                 ref_name = ref_sequences[ref_mesh_id].name
-                                vi_mesh_path = (
-                                    "/storage/user/jiso/output/vis_meshes"
-                                )
-                                category_ratio_use_sph_path = os.path.join(
-                                    vi_mesh_path,
-                                    f"{category}_partial_ratio_{partial_ratio_for_saving}_start_frame_{start_frame_id_for_saving}_use_sph_{use_sph}_use_sd_{use_sd}",
-                                )
-                                os.makedirs(category_ratio_use_sph_path, exist_ok=True)
-                                sfm_pcl_type_path = os.path.join(
-                                    category_ratio_use_sph_path,
-                                    f"sfm_type_{sfm_type_for_saving}_pcl_type_{pcl_type_for_saving}",
-                                )
-                                os.makedirs(sfm_pcl_type_path, exist_ok=True)
-                                folder_path = os.path.join(
-                                    sfm_pcl_type_path,
-                                    f"ref_id_{ref_name}_src_id_{src_name}_aligned",
-                                )
-                                folder_path_flip = os.path.join(
-                                    sfm_pcl_type_path,
-                                    f"ref_id_{ref_name}_src_id_{src_name}_aligned_flip",
-                                )
-                                os.makedirs(folder_path, exist_ok=True)
+                                # vi_mesh_path = (
+                                #     "/storage/user/jiso/output/vis_meshes"
+                                # )
+                                # category_ratio_use_sph_path = os.path.join(
+                                #     vi_mesh_path,
+                                #     f"{category}_partial_ratio_{partial_ratio_for_saving}_start_frame_{start_frame_id_for_saving}_use_sph_{use_sph}_use_sd_{use_sd}",
+                                # )
+                                # os.makedirs(category_ratio_use_sph_path, exist_ok=True)
+                                # sfm_pcl_type_path = os.path.join(
+                                #     category_ratio_use_sph_path,
+                                #     f"sfm_type_{sfm_type_for_saving}_pcl_type_{pcl_type_for_saving}",
+                                # )
+                                # os.makedirs(sfm_pcl_type_path, exist_ok=True)
+                                # folder_path = os.path.join(
+                                #     sfm_pcl_type_path,
+                                #     f"ref_id_{ref_name}_src_id_{src_name}_aligned",
+                                # )
+                                # folder_path_flip = os.path.join(
+                                #     sfm_pcl_type_path,
+                                #     f"ref_id_{ref_name}_src_id_{src_name}_aligned_flip",
+                                # )
+                                # os.makedirs(folder_path, exist_ok=True)
                                 transformed_pts_src = (
                                     (inv_tform4x4(src_tform4x4_ref))
                                     @ torch.cat(
@@ -527,46 +515,46 @@ class NeMo_Align3D(OD3D_Method):
                                     ref_pts3d_normals,
                                 ) = ref_sequences[ref_mesh_id].read_pcl()
 
-                                save_visualization_mesh(
-                                    pts=pts_src,
-                                    pts_ref=pts_ref,
-                                    pts_ids=best_correspondence,
-                                    pts_ref_ids=best_ref_correspondence,
-                                    filename=os.path.join(
-                                        sfm_pcl_type_path,
-                                        f"ref_id_{ref_name}_src_id_{src_name}",
-                                    ),
-                                )
+                                # save_visualization_mesh(
+                                #     pts=pts_src,
+                                #     pts_ref=pts_ref,
+                                #     pts_ids=best_correspondence,
+                                #     pts_ref_ids=best_ref_correspondence,
+                                #     filename=os.path.join(
+                                #         sfm_pcl_type_path,
+                                #         f"ref_id_{ref_name}_src_id_{src_name}",
+                                #     ),
+                                # )
 
-                                save_visualization_mesh(
-                                    pts=transformed_pts_src[:, :3],
-                                    pts_ref=pts_ref,
-                                    pts_ids=best_correspondence,
-                                    pts_ref_ids=best_ref_correspondence,
-                                    filename=folder_path,
-                                )
+                                # save_visualization_mesh(
+                                #     pts=transformed_pts_src[:, :3],
+                                #     pts_ref=pts_ref,
+                                #     pts_ids=best_correspondence,
+                                #     pts_ref_ids=best_ref_correspondence,
+                                #     filename=folder_path,
+                                # )
 
-                                save_visualization_mesh_with_color(
-                                    pts=pts_src,
-                                    pts_ref=pts_ref,
-                                    pts_ids=best_correspondence,
-                                    pts_ref_ids=best_ref_correspondence,
-                                    filename=os.path.join(
-                                        sfm_pcl_type_path,
-                                        f"ref_id_{ref_name}_src_id_{src_name}",
-                                    ),
-                                    original_pts_ref=ref_pts3d,
-                                    original_pts_color_ref=ref_pts3d_colors,
-                                    original_pts_src=src_pts3d,
-                                    original_pts_color_src=src_pts3d_colors,
-                                )
+                                # save_visualization_mesh_with_color(
+                                #     pts=pts_src,
+                                #     pts_ref=pts_ref,
+                                #     pts_ids=best_correspondence,
+                                #     pts_ref_ids=best_ref_correspondence,
+                                #     filename=os.path.join(
+                                #         sfm_pcl_type_path,
+                                #         f"ref_id_{ref_name}_src_id_{src_name}",
+                                #     ),
+                                #     original_pts_ref=ref_pts3d,
+                                #     original_pts_color_ref=ref_pts3d_colors,
+                                #     original_pts_src=src_pts3d,
+                                #     original_pts_color_src=src_pts3d_colors,
+                                # )
 
                                 # save_visualization_mesh_with_color(pts= transformed_pts_src[:,:3], pts_ref= pts_ref, pts_ids= best_correspondence, pts_ref_ids= best_ref_correspondence, filename= folder_path)
 
-                                os.makedirs(
-                                    os.path.join(sfm_pcl_type_path, f"{category}"),
-                                    exist_ok=True,
-                                )
+                                # os.makedirs(
+                                #     os.path.join(sfm_pcl_type_path, f"{category}"),
+                                #     exist_ok=True,
+                                # )
                                 # np.save( os.path.join(sfm_pcl_type_path, f'{category}',f'dino_{ref_name}.npy'), ref_mesh_feat_attached)
                                 # np.save( os.path.join(sfm_pcl_type_path, f'{category}',f'dino_{src_name}.npy'), src_mesh_feat_attached)
                                 from od3d.cv.optimization.gradient_descent import (
@@ -640,7 +628,7 @@ class NeMo_Align3D(OD3D_Method):
                         logger.info(f"ref seq {ref_sequences_unique_names[r]}")
                         logger.info(f"src_seq {src_sequences_unique_names[s]}")
                         logger.info(
-                            f"diff rot degree for the baseline is {180 * diff_rot_angle_rad / torch.pi}"
+                            f"diff rot degree for the optimal transport is {180 * diff_rot_angle_rad / torch.pi}"
                         )
                         # logger.info(f'diff_rot_degree mast3r is {180 * diff_rot_angle_rad_mast3r / torch.pi}')
                         print(
@@ -797,268 +785,6 @@ class NeMo_Align3D(OD3D_Method):
             #     pickle.dump(result_dict, handle, protocol= pickle.HIGHEST_PROTOCOL)
             logger.info(f"category_results_mean is,  {category_results_mean}")
 
-        # for suffix in ['', '_filtered', '_mesh', '_mesh_filtered']:
-        #     for ref_instance_id_in_category in range(max(ref_instances_count_per_category)):
-        #         aligned_name = f'{self.config.aligned_name}{suffix}/r{ref_instance_id_in_category}'
-        #         aligned_path = dataset_src.path_preprocess.joinpath('aligned', aligned_name)
-        #         od3d.io.rm_dir(aligned_path)
-
-    #     for cat_id, category in enumerate(categories):
-    #         logger.info(f"category {category}")
-
-    #         ref_category_instance_ids = ref_instance_ids[ref_map_seq_to_cat == cat_id]
-    #         if self.config.use_only_first_reference:
-    #             ref_category_instance_ids = ref_category_instance_ids[:1]
-
-    #         src_category_instance_ids = src_instance_ids[src_map_seq_to_cat == cat_id]
-
-    #         for ref_instance_id_in_category, ref_instance_id in enumerate(
-    #             ref_category_instance_ids,
-    #         ):
-    #             if self.config.aligned_name is not None:
-    #                 aligned_name = (
-    #                     f"{self.config.aligned_name}/r{ref_instance_id_in_category}"
-    #                 )
-    #                 aligned_filtered_name = f"{self.config.aligned_name}_filtered/r{ref_instance_id_in_category}"
-
-    #             # geometry/appearance: 0.81/0.18 | 0.59/0.29 | 0.89/0.29 | 0.9/0.65 (best qualit.) | 0.9/0.55 | 0.9 / 0.6 | 0.95 0.76 | 0.92 0.53 | 0.91 0.55
-    #             if self.config.gt_cam_tform_obj_source is not None:
-    #                 rot_diff_rad = results_diff_log_rot[category][
-    #                     ref_instance_id_in_category,
-    #                     :,
-    #                 ]
-    #                 accurate_pi6 = rot_diff_rad < (math.pi / 6.0)
-    #                 accurate_pi18 = rot_diff_rad < (math.pi / 18.0)
-    #             accurate_sim_geo = (
-    #                 1.0
-    #                 - all_pred_pose_dist_geo[category][ref_instance_id_in_category, :]
-    #             ) > 0.91
-    #             # accurate_sim_geo
-    #             accurate_sim_appear = (
-    #                 1.0
-    #                 - all_pred_pose_dist_appear[category][
-    #                     ref_instance_id_in_category,
-    #                     :,
-    #                 ]
-    #             ) > 0.50
-    #             accurate_sim = accurate_sim_geo * accurate_sim_appear
-
-    #             pts3d = []
-    #             pts3d_colors = []
-
-    #             src_meshes_cloned = []
-    #             ref_meshes_cloned = []
-    #             for src_instance_id_in_category, src_instance_id in enumerate(
-    #                 src_category_instance_ids,
-    #             ):
-    #                 # prediction
-    #                 aligned_cuboid_tform_src = all_pred_ref_tform_src[category][
-    #                     ref_instance_id_in_category,
-    #                     src_instance_id_in_category,
-    #                 ]
-
-    #                 src_vertices_mask = (
-    #                     src_sequences_mesh_ids_for_verts == src_instance_id
-    #                 )
-    #                 ref_vertices_mask = (
-    #                     ref_sequences_mesh_ids_for_verts == ref_instance_id
-    #                 )
-
-    #                 ref_mesh_cloned = ref_meshes.get_meshes_with_ids(
-    #                     meshes_ids=[ref_instance_id],
-    #                     clone=True,
-    #                 )
-    #                 ref_mesh_cloned.verts[:] = (
-    #                     ref_mesh_cloned.verts
-    #                     + all_pred_ref_pts_offset[category][
-    #                         src_instance_id_in_category
-    #                     ][ref_vertices_mask]
-    #                 ).detach()
-    #                 src_mesh_cloned = src_meshes.get_meshes_with_ids(
-    #                     meshes_ids=[src_instance_id],
-    #                     clone=True,
-    #                 )
-    #                 src_mesh_cloned.verts[:] = (
-    #                     transf3d_broadcast(
-    #                         src_mesh_cloned.verts,
-    #                         aligned_cuboid_tform_src,
-    #                     )
-    #                 ).detach()
-
-    #                 ref_verts_ncds = ref_mesh_cloned.verts.clone().detach()
-    #                 ref_verts_ncds = (
-    #                     ref_verts_ncds - ref_verts_ncds.min(dim=0, keepdim=True).values
-    #                 ) / (
-    #                     1e-10
-    #                     + ref_verts_ncds.max(dim=0, keepdim=True).values
-    #                     - ref_verts_ncds.min(dim=0, keepdim=True).values
-    #                 )
-    #                 ref_verts_ncds = (ref_verts_ncds + 1.0) / 2.0
-
-    #                 if self.config.aligned_name is not None:
-    #                     if accurate_sim[src_instance_id_in_category]:
-    #                         src_sequences[
-    #                             src_instance_id
-    #                         ].write_aligned_mesh_and_tform_obj(
-    #                             mesh=ref_mesh_cloned,
-    #                             aligned_obj_tform_obj=aligned_cuboid_tform_src,
-    #                             aligned_name=aligned_filtered_name,
-    #                         )
-
-    #                     src_sequences[src_instance_id].write_aligned_mesh_and_tform_obj(
-    #                         mesh=ref_mesh_cloned,
-    #                         aligned_obj_tform_obj=aligned_cuboid_tform_src,
-    #                         aligned_name=aligned_name,
-    #                     )
-
-    #                 dist_verts_ref = (
-    #                     src_sequences[src_instance_id]
-    #                     .read_mesh_feats_dist(ref_sequences[ref_instance_id])
-    #                     .to(device=self.device, dtype=dtype)
-    #                 )
-    #                 dist_verts_ref = dist_verts_ref / 2.0
-    #                 dists_verts_min_ref_vertices = dist_verts_ref.min(dim=-1)[1]
-
-    #                 (
-    #                     _,
-    #                     dist_ref_geometry_weight,
-    #                     dist_ref_appear_weight,
-    #                 ) = score_tform4x4_fit(
-    #                     pts=src_mesh_cloned.verts,
-    #                     tform4x4=torch.eye(4)[None,].to(device=self.device),
-    #                     pts_ref=ref_mesh_cloned.verts,
-    #                     dist_app_ref=dist_verts_ref,
-    #                     return_weights=True,
-    #                     dist_app_weight=self.config.dist_appear_weight,
-    #                     geo_cyclic_weight_temp=self.config.geo_cyclic_weight_temp,
-    #                     app_cyclic_weight_temp=self.config.app_cyclic_weight_temp,
-    #                     score_perc=self.config.ransac.score_perc,
-    #                 )
-
-    #                 dist_ref_geometry_weight = (
-    #                     dist_ref_geometry_weight / dist_ref_geometry_weight.max()
-    #                 )
-    #                 dist_ref_appear_weight = (
-    #                     dist_ref_appear_weight / dist_ref_appear_weight.max()
-    #                 )
-
-    #                 ref_mesh_cloned.rgb[:] = ref_verts_ncds
-    #                 src_mesh_cloned.rgb[:] = ref_verts_ncds[
-    #                     dists_verts_min_ref_vertices
-    #                 ]
-    #                 src_mesh_cloned.rgb *= dist_ref_appear_weight[
-    #                     0,
-    #                     : src_mesh_cloned.rgb.shape[0],
-    #                     None,
-    #                 ]
-
-    #                 # co3d_src_tform_src = self.sequences_co3d_tform_droid_slam[instance_id]
-    #                 # pts3d.append(transf3d_broadcast(pts3d=self.sequences[instance_id].pcl.to(device=self.device, dtype=dtype), transf4x4=tform4x4(all_pred_ref_tform_src[category][ref_instance_id_in_category, instance_id_in_category], inv_tform4x4(co3d_src_tform_src))))
-    #                 from od3d.datasets.object import OD3D_PCL_TYPES
-    #                 src_pts3d, src_pts3d_colors, src_pts3d_normals = src_sequences[
-    #                     src_instance_id
-    #                 ].read_pcl()
-    #                 src_pts3d = src_pts3d.to(device=self.device, dtype=dtype)
-    #                 src_pts3d_colors = src_pts3d_colors.to(
-    #                     device=self.device,
-    #                     dtype=dtype,
-    #                 )
-    #                 src_pts3d_normals = src_pts3d_normals.to(
-    #                     device=self.device,
-    #                     dtype=dtype,
-    #                 )
-    #                 src_pts3d = transf3d_broadcast(
-    #                     src_pts3d,
-    #                     aligned_cuboid_tform_src,
-    #                 ).detach()
-
-    #                 pts3d.append(src_pts3d)
-    #                 pts3d_colors.append(src_pts3d_colors)
-
-    #                 src_meshes_cloned.append(src_mesh_cloned)
-    #                 ref_meshes_cloned.append(ref_mesh_cloned)
-
-    #             viewpoints_count = 2
-    #             category_meshes = Meshes.load_from_meshes(
-    #                 src_meshes_cloned,
-    #                 device=self.device,
-    #             )
-    #             # category_meshes = Meshes.load_from_meshes(ref_meshes_cloned, device=self.device)
-    #             dis = {'bicycle': 10.0, 'motorcycle': 10.0, 'car':20.0, 'hydrant': 5.0, 'toilet': 10.0,
-    #                    'hairdryer':5.0, 'bench': 10.0, 'toytrain': 5.0, 'bench': 10.0, 'backpack': 6.0,
-    #                    'remote': 5.0, 'couch': 10.0, 'toytruck': 5.0, 'cup': 5.0, 'teddybear': 5.0}
-    #             imgs = show_scene(
-    #                 pts3d=pts3d,
-    #                 pts3d_colors=pts3d_colors,
-    #                 return_visualization=True,
-    #                 viewpoints_count=viewpoints_count,
-    #                 meshes=category_meshes,
-    #                 device=self.device,
-    #                 meshes_add_translation=True,
-    #                 pts3d_add_translation=True,
-    #                 renderer=self.config.renderer,
-    #                 viewpoint_init_dist= dis[category],
-    #             )
-
-    #             from od3d.cv.visual.draw import add_boolean_table
-
-    #             if self.config.gt_cam_tform_obj_source is not None:
-    #                 accurate_table = torch.stack(
-    #                     [
-    #                         accurate_pi6,
-    #                         accurate_pi18,
-    #                         accurate_sim,
-    #                         accurate_sim_geo,
-    #                         accurate_sim_appear,
-    #                     ],
-    #                     dim=0,
-    #                 )
-    #             else:
-    #                 accurate_table = torch.stack(
-    #                     [accurate_sim, accurate_sim_geo, accurate_sim_appear],
-    #                     dim=0,
-    #                 )  # ,
-    #             from od3d.cv.visual.crop import crop_white_border_from_img
-
-    #             for v in range(viewpoints_count):
-    #                 img = crop_white_border_from_img(imgs[v])
-    #                 if self.config.gt_cam_tform_obj_source is not None:
-    #                     img = add_boolean_table(
-    #                         img,
-    #                         table=accurate_table,
-    #                         text=[
-    #                             "Label (PI/6)",
-    #                             "Label (PI/18)",
-    #                             "Sim.",
-    #                             "Sim. Geo.",
-    #                             "Sim. App.",
-    #                         ],
-    #                     )
-    #                 else:
-    #                     img = add_boolean_table(
-    #                         img,
-    #                         table=accurate_table,
-    #                         text=["Sim.", "Sim. Geo.", "Sim. App."],
-    #                     )
-
-    #                 results_visual = OD3D_Results()
-    #                 results_visual[f"{category}"] = image_as_wandb_image(
-    #                     img,
-    #                     caption="blub",
-    #                 )
-    #                 results_visual.log_with_prefix("aligned")
-    #             results_visual = OD3D_Results()
-    #             from PIL import Image
-    #             plot_image = Image.open(buf)
-    #             plot_array = np.array(plot_image)
-
-    #             # Convert NumPy array to PyTorch tensor
-    #             plot_tensor = torch.tensor(plot_array).permute(2, 0, 1).float() / 255.0  # Normalize if needed
-
-    #             results_visual[f"{category}"] = image_as_wandb_image(
-    #                 plot_tensor,
-    #                 caption="blub",
-    #             )
-    #             results_visual.log_with_prefix("Error Distribution")
+     
     def test(self, dataset: OD3D_Dataset, config_inference: DictConfig = None):
         return OD3D_Results()
