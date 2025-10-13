@@ -193,25 +193,13 @@ class NeMo_Align3D(OD3D_Method):
         ]
 
         logger.info("loading meshes...")
-        src_meshes = Meshes.load_from_meshes(
-            [seq.read_mesh() for seq in src_sequences],
-            device=self.device,
-        )
-        ref_meshes = Meshes.load_from_meshes(
-            [seq.read_mesh() for seq in ref_sequences],
-            device=self.device,
-        )
 
-        src_instances_count = len(src_meshes)
-        ref_instances_count = len(ref_meshes)
+        src_instances_count = len(src_sequences)
+        ref_instances_count = len(ref_sequences)
 
-        dtype = src_meshes.verts.dtype
-
-        src_sequences_mesh_ids_for_verts = src_meshes.get_mesh_ids_for_verts()
-        ref_sequences_mesh_ids_for_verts = ref_meshes.get_mesh_ids_for_verts()
+        dtype = torch.float32
 
         results_diff_log_rot = {}
-        all_pred_ref_pts_offset = {}
         all_pred_ref_tform_src = {}
         all_pred_pose_dist_geo = {}
         all_pred_pose_dist_appear = {}
@@ -251,17 +239,6 @@ class NeMo_Align3D(OD3D_Method):
                 dtype=dtype,
             )  # 1,1
 
-            all_pred_ref_pts_offset[category] = torch.zeros(
-                size=(
-                    src_instances_count_per_category[cat_id],
-                    sum(ref_meshes.verts_counts),
-                    3,
-                ),
-            ).to(
-                device=self.device,
-                dtype=dtype,
-            )  # 1, 452, 3
-
             all_pred_pose_dist_appear[category] = torch.zeros(
                 size=(
                     ref_instances_count_per_category[cat_id],
@@ -288,16 +265,19 @@ class NeMo_Align3D(OD3D_Method):
                         # src_sequences[src_mesh_id].show(show_imgs=True)
                         print("ref seq ", ref_sequences_unique_names[r])
                         print("src_seq ", src_sequences_unique_names[s])
-                        src_vertices_mask = (
-                            src_sequences_mesh_ids_for_verts == src_mesh_id
-                        )
-                        # flipped_src_vertices_mask = (
-                        #      flipped_src_sequences_mesh_ids_for_verts == src_mesh_id
-                        # )
-                        # src_vertices = torch.arange(src_vertices_count).to(device=self.device)[src_vertices_mask]
-                        pts_src = src_meshes.verts[src_vertices_mask].clone()
-                        # pt_src_rgb = src_meshes.rgb[src_vertices_mask].clone()
-                        # pts_src_flip = flipped_src_meshes.verts[flipped_src_vertices_mask].clone()
+                        root_path = ref_sequences[ref_mesh_id].path_preprocess
+                        category = ref_sequences[ref_mesh_id].name_unique.split('/')[0]
+                        sequence1 = ref_sequences[ref_mesh_id].name_unique.split('/')[1]
+                        sequence2 = src_sequences[src_mesh_id].name_unique.split('/')[1]
+                        
+                        # Optimal Transport
+                        from od3d.datasets.ot.optimal_transport import load_vertices
+                        
+                        pts_ref, _ = load_vertices(root_path, category, sequence1)
+                        pts_src, _ = load_vertices(root_path, category, sequence2)
+                        pts_src = pts_src.to(device=self.device, dtype=torch.float32)
+                        pts_ref = pts_ref.to(device=self.device, dtype=torch.float32)
+                        
                         if r > 0 and (
                             self.config.use_only_first_reference
                             or self.config.global_optimization_steps > 1
@@ -322,24 +302,6 @@ class NeMo_Align3D(OD3D_Method):
                                 # pts = self.meshes.verts.clone().detach()
                                 # pts_ref = pts[ref_vertices_mask].clone()
                                 # TODO: reference points from multiple point clouds have different scale and therefore problematic to fit with correspondences over multiple points
-                                pts_ref = torch.cat(
-                                    [
-                                        transf3d_broadcast(
-                                            pts3d=ref_meshes.verts[
-                                                ref_sequences_mesh_ids_for_verts
-                                                == _ref_mesh_id
-                                            ].clone(),
-                                            transf4x4=all_pred_ref_tform_src[category][
-                                                0,
-                                                _r,
-                                            ],
-                                        )
-                                        if _ref_mesh_id != src_mesh_id
-                                        else torch.zeros((0, 3), device=self.device)
-                                        for _r, _ref_mesh_id in enumerate(ref_mesh_ids)
-                                    ],
-                                    dim=0,
-                                )
                                 
                                 dist_src_ref = torch.cat(
                                     [
@@ -414,11 +376,6 @@ class NeMo_Align3D(OD3D_Method):
                                     s,
                                 ] = pred_ref_tform_src
                             else:
-                                ref_vertices_mask = (
-                                    ref_sequences_mesh_ids_for_verts == ref_mesh_id
-                                )
-                                pts_ref = ref_meshes.verts[ref_vertices_mask].clone()
-
                                 logger.info(
                                     f"category: {category}, pts-src: {pts_src.shape}, pts-ref: {pts_ref.shape}",
                                 )
@@ -484,7 +441,7 @@ class NeMo_Align3D(OD3D_Method):
                                 src_name = src_sequences[src_mesh_id].name
                                 ref_name = ref_sequences[ref_mesh_id].name
                                 vi_mesh_path = (
-                                    "/storage/user/jiso/output/vis_meshes"
+                                    "/storage/user/jiso/CO3D_V2_Preprocess/output/vis_meshes"
                                 )
                                 category_ratio_use_sph_path = os.path.join(
                                     vi_mesh_path,
@@ -598,9 +555,6 @@ class NeMo_Align3D(OD3D_Method):
                                         return_pts_offset=True,
                                     )
 
-                                    all_pred_ref_pts_offset[category][s][
-                                        ref_vertices_mask
-                                    ] = ref_pts_offset
 
                                 _, pose_dist_geo, pose_dist_appear = score_tform4x4_fit(
                                     pts=pts_ref,
@@ -636,9 +590,9 @@ class NeMo_Align3D(OD3D_Method):
                             gt_tform4x4=gt_ref_tform_src,
                         )
 
-                        # logger.info(f'diff_rot_angle_rad is  {diff_rot_angle_rad}')
                         logger.info(f"ref seq {ref_sequences_unique_names[r]}")
                         logger.info(f"src_seq {src_sequences_unique_names[s]}")
+                        logger.info(f'diff_rot_angle_rad is  {diff_rot_angle_rad}')
                         logger.info(
                             f"diff rot degree for the baseline is {180 * diff_rot_angle_rad / torch.pi}"
                         )

@@ -119,7 +119,6 @@ def ot_based_ransac(
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # 1. Compute distance matrices and OT scores
     dino_feats_dist = calculate_distance_matrix(root_path, category, sequence1, sequence2, "dino")
     sph_feats_dist = calculate_distance_matrix(root_path, category, sequence1, sequence2, "sph")
     total_dist = dino_feats_dist + sph_feats_dist
@@ -127,17 +126,15 @@ def ot_based_ransac(
     scores = 1 - dist_matrix.unsqueeze(0)
 
     alpha = torch.tensor(1.0).to(device)
-    iters = 30
+    iters = 50
     threshold = 0.001
     num_matches_list, matched_indices_list, _ = save_num_matches(scores, alpha, iters, threshold)
 
-    # 2. Load vertex positions
     seq1_vtx_pose, _ = load_vertices(root_path, category, sequence1)
     seq2_vtx_pose, _ = load_vertices(root_path, category, sequence2)
     seq1_pose = seq1_vtx_pose.detach().cpu().numpy()
     seq2_pose = seq2_vtx_pose.detach().cpu().numpy()
 
-    # 3. Extract matched point pairs
     match0, match1 = [], []
     for i, j in matched_indices_list[-1]:
         match0.append(seq1_pose[i.item()])
@@ -145,22 +142,15 @@ def ot_based_ransac(
     match0 = np.array(match0)
     match1 = np.array(match1)
 
-    # 4. Estimate transformation with RANSAC
     if match0.shape[0] < 4:
         raise RuntimeError("Not enough matches for transformation estimation.")
 
-    threshold = decide_threshold(match0)
-    best_inliers, best_T = run_ransac(match0, match1, threshold, minimal_correspondences=4, iter=2000)
-    final_best_inliers, final_best_T = run_ransac(match0[best_inliers], match1[best_inliers],
-                                                  minimal_correspondences=4, iter=2000)
-
-    # 5. Construct outputs similar to original ransac()
-    best_model = torch.from_numpy(final_best_T).float()  # shape: (4, 4)
-
-    best_correspondence = torch.tensor(match0[final_best_inliers]).float()
-    best_ref_correspondence = torch.tensor(match1[final_best_inliers]).float()
-
-    best_score = torch.tensor(len(final_best_inliers)).float()
+    # threshold = decide_threshold(match0, match1)
+    best_inliers, best_T = run_ransac(match0, match1, threshold=1.0, minimal_correspondences=4, iter=2000)
+    best_model = torch.from_numpy(best_T).float()  # shape: (4, 4)
+    best_correspondence = torch.tensor(match0[best_inliers]).float()
+    best_ref_correspondence = torch.tensor(match1[best_inliers]).float()
+    best_score = torch.tensor(len(best_inliers)).float()
 
     return (
         best_model,

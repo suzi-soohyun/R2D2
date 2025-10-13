@@ -15,33 +15,33 @@ seed_number: 0
 
 categories:
   - bicycle
-  # - truck
-  # - train
-  # - teddybear
+# #  - teddybear
   # - car
-  # - bus
-  # - motorcycle
-  # - keyboard
-  # - handbag
-  # - remote
-  # - airplane
-  # - toilet
-  # - hairdryer
-  # - mouse
-  # - toaster
-  # - hydrant
-  # - chair
-  # - laptop
-  # - book
-  # - backpack
-  #- cellphone # from cellphone on, no zsp categories
-  # - microwave
-  # - bench
-  # - bottle
-  #- couch
-  #- cup
-  # - suitcase
-  # - tv
+#   - motorcycle
+#   #  - keyboard
+#   - handbag
+#   #  - remote
+#   #  - toilet
+#   - hairdryer
+#   #  - mouse
+#   - toaster
+#   - hydrant
+#   #  - chair
+#   - laptop
+#   #  - book
+#   #  - backpack
+#   #  - cellphone # from cellphone on, no zsp categories
+#   - microwave
+#   #  - bench
+#   - bottle
+#   - couch
+#   - cup
+#   #  - suitcase
+#   - toybus
+#   - toyplane
+#   - toytrain
+#   # - toytruck
+#   - tv
 
 metrics:
   - metricA

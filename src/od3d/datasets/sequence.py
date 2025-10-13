@@ -3775,6 +3775,22 @@ class OD3D_SequenceMeshMixin(
         from od3d.datasets.ot.optimal_transport import calculate_distance_matrix, save_num_matches, load_vertices
         device = get_default_device()
         
+        vis_root = self.path_preprocess.joinpath(
+            "vis_ot",
+            category,
+            sequence1,
+            sequence2,
+        )
+        if not os.path.exists(vis_root):
+            os.makedirs(vis_root)
+        tresult_path = os.path.join(vis_root, "transformed_meshes.ply")
+        
+        if not override and os.path.exists(tresult_path):
+            logger.info(
+                f"mesh feats dist already exist at {tresult_path}",
+            )
+            return
+        
         dino_feats_dist = calculate_distance_matrix(root_path, category, sequence1, sequence2, "dino")
         sph_feats_dist = calculate_distance_matrix(root_path, category, sequence1, sequence2, "sph")
         total_dist = dino_feats_dist + sph_feats_dist
@@ -3806,22 +3822,15 @@ class OD3D_SequenceMeshMixin(
         from od3d.datasets.ot.ransac_for_ot import run_ransac, decide_threshold
         from od3d.datasets.ot.visualize_ot import visualize_transformed_meshes_after_ot
         from od3d.datasets.ot.visualize_ot import visualize_correspondences_matching_after_ot
-        threshold = decide_threshold(match0)
-        best_inliers, best_T = run_ransac(match0, match1, threshold, minimal_correspondences = 4, iter = 2000)
-        final_best_inliers, final_best_T = run_ransac(match0[best_inliers], match1[best_inliers],  
-                                                      minimal_correspondences = 4, iter = 2000)
-        
-        vis_root = self.path_preprocess.joinpath(
-            "vis_ot",
-            category,
-            sequence1,
-            sequence2,
-        )
-        if not os.path.exists(vis_root):
-            os.makedirs(vis_root)
-        tresult_path = os.path.join(vis_root, "transformed_meshes.ply")
+        # threshold = decide_threshold(match0, match1)
+        best_inliers, best_T = run_ransac(match0, match1, threshold=1.0, minimal_correspondences=4, iter=2000)
+
+        with open(f"{vis_root}/ransac_results.txt", "a") as f:
+            f.write("Transformation Matrix (final_best_T):\n")
+            np.savetxt(f, best_T, fmt="%.6f")
+            f.write("\n" + "-"*40 + "\n")
         mresult_path = os.path.join(vis_root, "correspondences_matching.png")
-        visualize_transformed_meshes_after_ot(seq1_pose, seq2_pose, final_best_T, tresult_path)
+        visualize_transformed_meshes_after_ot(seq1_pose, seq2_pose, best_T, tresult_path)
         # visualize_correspondences_matching_after_ot(
         #     seq1_pose, seq1_color,
         #     seq2_pose, seq2_color,

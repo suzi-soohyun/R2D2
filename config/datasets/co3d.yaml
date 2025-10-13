@@ -85,11 +85,11 @@ preprocess:
     enabled: False
     override: False
   mesh_feats:
-    enabled: True
+    enabled: False
     override: False
     baseline: True
   mesh_feats_dist:
-    enabled: False
+    enabled: True
     override: False
     baseline: True
 

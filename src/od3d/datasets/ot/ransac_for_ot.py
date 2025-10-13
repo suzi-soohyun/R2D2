@@ -73,12 +73,15 @@ def umeyama(src, dst, estimate_scale=True):
     else:
         scale = 1.0
 
-    T[:dim, dim] = dst_mean - scale * (T[:dim, :dim] @ src_mean.T)
+    # Apply scale to rotation and compute translation accordingly
     T[:dim, :dim] *= scale
+    T[:dim, dim] = dst_mean - T[:dim, :dim] @ src_mean
+
     return T, scale
 
 # TODO: more iterations, run umeyama at the end with best_inliers
 def run_ransac(match0, match1, threshold = 2, minimal_correspondences = 4, iter = 1000):
+    print("threshold:", threshold)
     best_num_inliers = 0
     best_inliers = []
     best_T = None
@@ -117,13 +120,19 @@ def randomly_select_n_correspondences(match0, match1, n):
     return (match0_selected, match1_selected)
 
 
-def decide_threshold(point_cloud):
-    max_width = np.max(point_cloud[:, 0]) - np.min(point_cloud[:, 0])
-    max_height = np.max(point_cloud[:, 1]) - np.min(point_cloud[:, 1])
-    max_depth = np.max(point_cloud[:, 2]) - np.min(point_cloud[:, 2])
-
-    print(f"Max Width: {max_width}")
-    print(f"Max Height: {max_height}")
-    print(f"Max Depth: {max_depth}")
-    threshold = int(max(max_width, max_height, max_depth) / 2)
+def decide_threshold(point_cloud1, point_cloud2):
+    max_width1 = np.max(point_cloud1[:, 0]) - np.min(point_cloud1[:, 0])
+    max_height1 = np.max(point_cloud1[:, 1]) - np.min(point_cloud1[:, 1])
+    max_depth1 = np.max(point_cloud1[:, 2]) - np.min(point_cloud1[:, 2])
+    print(f"Max Width1: {max_width1}")
+    print(f"Max Height1: {max_height1}")
+    print(f"Max Depth1: {max_depth1}")
+    max_width2 = np.max(point_cloud2[:, 0]) - np.min(point_cloud2[:, 0])
+    max_height2 = np.max(point_cloud2[:, 1]) - np.min(point_cloud2[:, 1])
+    max_depth2 = np.max(point_cloud2[:, 2]) - np.min(point_cloud2[:, 2])
+    print(f"Max Width2: {max_width2}")
+    print(f"Max Height2: {max_height2}")
+    print(f"Max Depth2: {max_depth2}")
+    threshold = int(min(max_width1, max_height1, max_depth1, max_width2, max_height2, max_depth2)) / 2
+    print(threshold)
     return threshold

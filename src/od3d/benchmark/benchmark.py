@@ -30,9 +30,8 @@ class OD3D_Benchmark:
             # )
             model_type = "baseline"
             formatted_name = (
-                f"{model_type}"
-                f"_category_{self.config.train_datasets.labeled.categories}"
-                f"_partial_ratio_{self.config.train_datasets.labeled.partial_ratio}"
+                f"{model_type}_{self.config.train_datasets.labeled.categories}"
+                # f"_partial_ratio_{self.config.train_datasets.labeled.partial_ratio}"
             )
             wandb.init(
                 project=self.config.logger.wandb_project_name,

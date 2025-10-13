@@ -385,36 +385,37 @@ def save_visualization_mesh(pts, pts_ref, pts_ids, pts_ref_ids, filename):
     pts_point_cloud = o3d.geometry.PointCloud()
     pts_point_cloud.points = o3d.utility.Vector3dVector(pts_cloned)
     pts_point_cloud.colors = o3d.utility.Vector3dVector(
-        np.tile([0.3, 0.3, 0.3], (pts.shape[0], 1))
-    )  # Color each point as gray
+        np.tile([1, 0, 0], (pts.shape[0], 1))
+    )  # Color each point as red
 
     pts_ref_point_cloud = o3d.geometry.PointCloud()
     pts_ref_point_cloud.points = o3d.utility.Vector3dVector(pts_ref_cloned)
     pts_ref_point_cloud.colors = o3d.utility.Vector3dVector(
-        np.tile([0.8, 0.2, 0.5], (pts_ref.shape[0], 1))
-    )  # Color each point as lighter gray
+        np.tile([0, 1, 0], (pts_ref.shape[0], 1))
+    )  # Color each point as green
 
     # Save the point clouds to .ply files
-    o3d.io.write_point_cloud(os.path.join(filename, "src.ply"), pts_point_cloud)
-    o3d.io.write_point_cloud(os.path.join(filename, "ref.ply"), pts_ref_point_cloud)
+    combined_pcd = pts_point_cloud + pts_ref_point_cloud
+   
+    o3d.io.write_point_cloud(os.path.join(filename, "aligned_meshes.ply"), combined_pcd)
 
     print(f"Saved point clouds to {filename}")
 
-    for i in range(len(pts_ids)):
-        start_point = pts_cloned[pts_ref_ids[i]]
-        end_point = pts_ref_cloned[pts_ids[i]]
-        points = np.array([start_point, end_point])
-        lines = np.array([[0, 1]])
-        line_set = o3d.geometry.LineSet()
-        line_set.points = o3d.utility.Vector3dVector(points)
-        line_set.lines = o3d.utility.Vector2iVector(lines)
+    # for i in range(len(pts_ids)):
+    #     start_point = pts_cloned[pts_ref_ids[i]]
+    #     end_point = pts_ref_cloned[pts_ids[i]]
+    #     points = np.array([start_point, end_point])
+    #     lines = np.array([[0, 1]])
+    #     line_set = o3d.geometry.LineSet()
+    #     line_set.points = o3d.utility.Vector3dVector(points)
+    #     line_set.lines = o3d.utility.Vector2iVector(lines)
 
-        # Optionally, define colors for the line
-        colors = [[1, 0, 0]]  # Red color for the line
-        line_set.colors = o3d.utility.Vector3dVector(colors)
+    #     # Optionally, define colors for the line
+    #     colors = [[1, 0, 0]]  # Red color for the line
+    #     line_set.colors = o3d.utility.Vector3dVector(colors)
 
-        # Save the LineSet to a .ply file
-        o3d.io.write_line_set(os.path.join(filename, f"line_segment_{i}.ply"), line_set)
+    #     # Save the LineSet to a .ply file
+    #     o3d.io.write_line_set(os.path.join(filename, f"line_segment_{i}.ply"), line_set)
 
 
 def get_closest_points_color(pts, original_pts, original_pts_color):

@@ -1179,7 +1179,7 @@ class OD3D_SequenceDataset(OD3D_Dataset):
             total_dino_features_tensor = torch.cat(total_dino_features_list, dim=0)
             n_feats = total_dino_features_tensor.shape[1]
             q = int(n_feats / 2)
-            mean, projection = pca(total_dino_features_tensor, q, plot=True)
+            mean, projection = pca(total_dino_features_tensor, q, plot=False)
             logger.info(f"mean: {mean.shape}")
             logger.info(f"projection: {projection.shape}")
             
