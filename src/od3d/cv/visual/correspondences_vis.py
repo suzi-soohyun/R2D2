@@ -376,7 +376,7 @@ def vis_heatmap_from_vertices(
         np.save(os.path.join(filename, f"pts_src_with_dists_{i}.npy"), pts_src_numpy)
 
 
-def save_visualization_mesh(pts, pts_ref, pts_ids, pts_ref_ids, filename):
+def save_visualization_mesh(pts, pts_ref, filename):
     os.makedirs(filename, exist_ok=True)
     # Convert tensors to numpy arrays
     pts_cloned = pts.clone().cpu().numpy()
@@ -472,21 +472,21 @@ def save_visualization_mesh_with_color(
 
     print(f"Saved point clouds to {filename}")
 
-    for i in range(len(pts_ids)):
-        start_point = pts_cloned[pts_ref_ids[i]]
-        end_point = pts_ref_cloned[pts_ids[i]]
-        points = np.array([start_point, end_point])
-        lines = np.array([[0, 1]])
-        line_set = o3d.geometry.LineSet()
-        line_set.points = o3d.utility.Vector3dVector(points)
-        line_set.lines = o3d.utility.Vector2iVector(lines)
+    # for i in range(len(pts_ids)):
+    #     start_point = pts_cloned[pts_ref_ids[i]]
+    #     end_point = pts_ref_cloned[pts_ids[i]]
+    #     points = np.array([start_point, end_point])
+    #     lines = np.array([[0, 1]])
+    #     line_set = o3d.geometry.LineSet()
+    #     line_set.points = o3d.utility.Vector3dVector(points)
+    #     line_set.lines = o3d.utility.Vector2iVector(lines)
 
-        # Optionally, define colors for the line
-        colors = [[1, 0, 0]]  # Red color for the line
-        line_set.colors = o3d.utility.Vector3dVector(colors)
+    #     # Optionally, define colors for the line
+    #     colors = [[1, 0, 0]]  # Red color for the line
+    #     line_set.colors = o3d.utility.Vector3dVector(colors)
 
-        # Save the LineSet to a .ply file
-        o3d.io.write_line_set(os.path.join(filename, f"line_segment_{i}.ply"), line_set)
+    #     # Save the LineSet to a .ply file
+    #     o3d.io.write_line_set(os.path.join(filename, f"line_segment_{i}.ply"), line_set)
 
 
 def convert_pts_mesh(pts, file_path):

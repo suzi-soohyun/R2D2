@@ -28,7 +28,7 @@ class OD3D_Benchmark:
             #     f"_flipped_feature_{str(self.config.train_datasets.labeled.use_flipped_feature)}"
             #     f"_use_sd_{str(self.config.train_datasets.labeled.use_sd)}"
             # )
-            model_type = "baseline"
+            model_type = "ot"
             formatted_name = (
                 f"{model_type}_{self.config.train_datasets.labeled.categories}"
                 # f"_partial_ratio_{self.config.train_datasets.labeled.partial_ratio}"

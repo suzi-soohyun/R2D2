@@ -114,6 +114,8 @@ def ot_based_ransac(
     category,
     sequence1,
     sequence2,
+    seq1_pose,
+    seq2_pose,
 ):
     from od3d.datasets.ot.ransac_for_ot import run_ransac, decide_threshold
 
@@ -129,11 +131,6 @@ def ot_based_ransac(
     iters = 50
     threshold = 0.001
     num_matches_list, matched_indices_list, _ = save_num_matches(scores, alpha, iters, threshold)
-
-    seq1_vtx_pose, _ = load_vertices(root_path, category, sequence1)
-    seq2_vtx_pose, _ = load_vertices(root_path, category, sequence2)
-    seq1_pose = seq1_vtx_pose.detach().cpu().numpy()
-    seq2_pose = seq2_vtx_pose.detach().cpu().numpy()
 
     match0, match1 = [], []
     for i, j in matched_indices_list[-1]:

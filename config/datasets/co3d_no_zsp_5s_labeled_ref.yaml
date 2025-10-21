@@ -18,7 +18,6 @@ categories:
  - bicycle
  - bottle
  - bench
- - book
  - chair
  - car
  - cellphone # from cellphone on, no zsp categories
@@ -41,7 +40,8 @@ categories:
  - toyplane
  - toytrain
  - toytruck
- - tv
+#  - book # few matches
+#  - tv # few matches
 
 
 dict_nested_frames:

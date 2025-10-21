@@ -430,34 +430,35 @@ class NeMo_Align3D(OD3D_Method):
                                 )  # 452, 452
                                 # division by two to normalize to 0. - 1.
                                 dist_ref_src = dist_ref_src / 2.0
-                                
-                                from od3d.datasets.ot.optimal_transport import load_vertices, ot_based_ransac
-                                root_path = ref_sequences[ref_mesh_id].path_preprocess
-                                category = ref_sequences[ref_mesh_id].name_unique.split('/')[0]
-                                sequence1 = ref_sequences[ref_mesh_id].name_unique.split('/')[1]
-                                sequence2 = src_sequences[src_mesh_id].name_unique.split('/')[1]
-                                
-                                logger.info(
-                                    f"category: {category}, pts-ref: {pts_ref.shape}, pts-src: {pts_src.shape}",
-                                )
+
                                 (
                                     src_tform4x4_ref,
+                                    models,
+                                    scores,
                                     best_correspondence,
                                     best_ref_correspondence,
+                                    best_geo_dist,
+                                    best_appear_dist,
                                     src_tform4x4_ref_score,
-                                    dist_ref_src,
-                                ) = ot_based_ransac(
-                                    root_path=root_path,
-                                    category=category,
-                                    sequence1=sequence1,
-                                    sequence2=sequence2,
-                                    seq1_pose=pts_ref.detach().cpu().numpy(),
-                                    seq2_pose=pts_src.detach().cpu().numpy(),
+                                ) = ransac(
+                                    pts=pts_ref,
+                                    fit_func=partial(
+                                        fit_tform4x4,
+                                        pts_ref=pts_src,
+                                        dist_ref=dist_ref_src,
+                                    ),
+                                    score_func=partial(
+                                        score_tform4x4_fit,
+                                        pts_ref=pts_src,
+                                        dist_app_ref=dist_ref_src,
+                                        dist_app_weight=self.config.dist_appear_weight,
+                                        geo_cyclic_weight_temp=self.config.geo_cyclic_weight_temp,
+                                        app_cyclic_weight_temp=self.config.app_cyclic_weight_temp,
+                                        score_perc=self.config.ransac.score_perc,
+                                    ),
+                                    fits_count=self.config.ransac.samples,
+                                    fit_pts_count=4,
                                 )
-                                print(dist_ref_src.shape)
-                                print("ref_tform4x4_src:", src_tform4x4_ref)
-                                src_tform4x4_ref = src_tform4x4_ref.to(device=self.device)
-
                                 from od3d.cv.visual.correspondences_vis import (
                                     save_visualization_mesh,
                                     save_visualization_mesh_with_color,
@@ -481,7 +482,7 @@ class NeMo_Align3D(OD3D_Method):
                                 src_name = src_sequences[src_mesh_id].name
                                 ref_name = ref_sequences[ref_mesh_id].name
                                 vi_mesh_path = (
-                                    "/storage/user/jiso/CO3D_V2_Preprocess/output_ot/vis_meshes"
+                                    "/storage/user/jiso/CO3D_V2_Preprocess/output/vis_meshes"
                                 )
                                 category_ratio_use_sph_path = os.path.join(
                                     vi_mesh_path,
@@ -503,7 +504,7 @@ class NeMo_Align3D(OD3D_Method):
                                 )
                                 os.makedirs(folder_path, exist_ok=True)
                                 transformed_pts_src = (
-                                    (src_tform4x4_ref)
+                                    (inv_tform4x4(src_tform4x4_ref))
                                     @ torch.cat(
                                         (
                                             pts_src,
@@ -539,20 +540,20 @@ class NeMo_Align3D(OD3D_Method):
                                     filename=folder_path,
                                 )
 
-                                # save_visualization_mesh_with_color(
-                                #     pts=pts_src,
-                                #     pts_ref=pts_ref,
-                                #     pts_ids=best_correspondence,
-                                #     pts_ref_ids=best_ref_correspondence,
-                                #     filename=os.path.join(
-                                #         sfm_pcl_type_path,
-                                #         f"ref_id_{ref_name}_src_id_{src_name}",
-                                #     ),
-                                #     original_pts_ref=ref_pts3d,
-                                #     original_pts_color_ref=ref_pts3d_colors,
-                                #     original_pts_src=src_pts3d,
-                                #     original_pts_color_src=src_pts3d_colors,
-                                # )
+                                save_visualization_mesh_with_color(
+                                    pts=pts_src,
+                                    pts_ref=pts_ref,
+                                    pts_ids=best_correspondence,
+                                    pts_ref_ids=best_ref_correspondence,
+                                    filename=os.path.join(
+                                        sfm_pcl_type_path,
+                                        f"ref_id_{ref_name}_src_id_{src_name}",
+                                    ),
+                                    original_pts_ref=ref_pts3d,
+                                    original_pts_color_ref=ref_pts3d_colors,
+                                    original_pts_src=src_pts3d,
+                                    original_pts_color_src=src_pts3d_colors,
+                                )
 
                                 # save_visualization_mesh_with_color(pts= transformed_pts_src[:,:3], pts_ref= pts_ref, pts_ids= best_correspondence, pts_ref_ids= best_ref_correspondence, filename= folder_path)
 
@@ -614,7 +615,9 @@ class NeMo_Align3D(OD3D_Method):
                                     s,
                                 ] = pose_dist_appear
                                 pred_ref_tform_src = src_tform4x4_ref.clone()
-                                
+                                pred_ref_tform_src = inv_tform4x4(
+                                    src_tform4x4_ref,
+                                ).clone()
                                 all_pred_ref_tform_src[category][
                                     r,
                                     s,
