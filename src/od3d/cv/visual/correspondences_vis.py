@@ -429,65 +429,80 @@ def get_closest_points_color(pts, original_pts, original_pts_color):
 
 
 def save_visualization_mesh_with_color(
-    pts,  # ref
-    pts_ref,  # src
-    pts_ids,
+    root_path,
+    category,
+    ref_name,
+    src_name,
+    pts_ref,
+    pts_color_ref,
+    pts_src,
+    pts_color_src,
     pts_ref_ids,
-    filename,
-    original_pts_ref,
-    original_pts_color_ref,
-    original_pts_src,
-    original_pts_color_src,
+    pts_src_ids,
+    transformed_pts_src,
+    baseline=False,
 ):
-    os.makedirs(filename, exist_ok=True)
-    # Convert tensors to numpy arrays
-    pts_cloned = pts.clone().cpu().numpy()
-    pts_ref_cloned = pts_ref.clone().cpu().numpy()
-    # Create point clouds
+    seqname=f"ref_id_{ref_name}_src_id_{src_name}"
+    folder_path = os.path.join(root_path, category, seqname)
+    os.makedirs(folder_path, exist_ok=True)
+
     pts_point_cloud = o3d.geometry.PointCloud()
     pts_point_cloud.points = o3d.utility.Vector3dVector(
-        original_pts_ref.clone().cpu().numpy()
+        pts_ref.clone().cpu().numpy()
     )
-    # pts_point_cloud.colors = o3d.utility.Vector3dVector(np.tile([0.3, 0.3, 0.3], (pts.shape[0], 1)))  # Color each point as gray
     pts_point_cloud.colors = o3d.utility.Vector3dVector(
-        original_pts_color_ref.clone().cpu().numpy()
+        pts_color_ref.clone().cpu().numpy()
     )
 
     pts_ref_point_cloud = o3d.geometry.PointCloud()
     pts_ref_point_cloud.points = o3d.utility.Vector3dVector(
-        original_pts_src.clone().cpu().numpy()
+        pts_ref.clone().cpu().numpy()
     )
-    # pts_ref_point_cloud.colors = o3d.utility.Vector3dVector(np.tile([0.8, 0.2, 0.5], (pts_ref.shape[0], 1)))  # Color each point as lighter gray
     pts_ref_point_cloud.colors = o3d.utility.Vector3dVector(
-        original_pts_color_src.clone().cpu().numpy()
-    )  # Color each point as lighter gray
-
-    # Save the point clouds to .ply files
-    # o3d.io.write_point_cloud(os.path.join(filename, 'src.ply'), pts_point_cloud)
-    # o3d.io.write_point_cloud(os.path.join(filename, 'ref.ply'), pts_ref_point_cloud)
-    o3d.io.write_point_cloud(os.path.join(filename, "ref_colored.ply"), pts_point_cloud)
-    o3d.io.write_point_cloud(
-        os.path.join(filename, "src_colored.ply"), pts_ref_point_cloud
+        pts_color_src.clone().cpu().numpy()
     )
 
-    print(f"Saved point clouds to {filename}")
+    o3d.io.write_point_cloud(os.path.join(folder_path, "ref_colored.ply"), pts_point_cloud)
+    o3d.io.write_point_cloud(
+        os.path.join(folder_path, "src_colored.ply"), pts_ref_point_cloud
+    )
+    
+    if baseline:
+        pts_ref_ids = pts_ref[pts_ref_ids]
+        pts_src_ids = pts_src[pts_src_ids]
 
-    # for i in range(len(pts_ids)):
-    #     start_point = pts_cloned[pts_ref_ids[i]]
-    #     end_point = pts_ref_cloned[pts_ids[i]]
-    #     points = np.array([start_point, end_point])
-    #     lines = np.array([[0, 1]])
-    #     line_set = o3d.geometry.LineSet()
-    #     line_set.points = o3d.utility.Vector3dVector(points)
-    #     line_set.lines = o3d.utility.Vector2iVector(lines)
+    print(f"Saved point clouds to {folder_path}")
+    vtx = {
+        'category': category,
+        'seq1': {
+            'name': ref_name,
+            'pose': pts_ref,
+            'color': pts_color_ref,
+        },
+        'seq2': {
+            'name': src_name,
+            'pose': pts_src,
+            'color': pts_color_src,
+            'transformed_pose': transformed_pts_src,
+        },
+        'matches': {
+            'match0': pts_ref_ids,
+            'match1': pts_src_ids,
+        }
+    }
+    
+    vtx_numpy = tensor_to_numpy(vtx)
+    import pickle
+    with open(f"{folder_path}/matches_dict.pkl", "wb") as f:
+        pickle.dump(vtx_numpy, f)
 
-    #     # Optionally, define colors for the line
-    #     colors = [[1, 0, 0]]  # Red color for the line
-    #     line_set.colors = o3d.utility.Vector3dVector(colors)
-
-    #     # Save the LineSet to a .ply file
-    #     o3d.io.write_line_set(os.path.join(filename, f"line_segment_{i}.ply"), line_set)
-
+def tensor_to_numpy(obj):
+    if isinstance(obj, torch.Tensor):
+        return obj.cpu().numpy()  # move to CPU and convert to numpy
+    elif isinstance(obj, dict):
+        return {k: tensor_to_numpy(v) for k, v in obj.items()}
+    else:
+        return obj
 
 def convert_pts_mesh(pts, file_path):
     pts_cloned = pts.clone().cpu().numpy()

@@ -435,8 +435,8 @@ class NeMo_Align3D(OD3D_Method):
                                     src_tform4x4_ref,
                                     models,
                                     scores,
-                                    best_correspondence,
                                     best_ref_correspondence,
+                                    best_src_correspondence,
                                     best_geo_dist,
                                     best_appear_dist,
                                     src_tform4x4_ref_score,
@@ -482,27 +482,18 @@ class NeMo_Align3D(OD3D_Method):
                                 src_name = src_sequences[src_mesh_id].name
                                 ref_name = ref_sequences[ref_mesh_id].name
                                 vi_mesh_path = (
-                                    "/storage/user/jiso/CO3D_V2_Preprocess/output/vis_meshes"
-                                )
-                                category_ratio_use_sph_path = os.path.join(
+                                    "/storage/user/jiso/CO3D_V2_Preprocess/output_baseline/vis_meshes"
+                                )                                
+                                category_path = os.path.join(
                                     vi_mesh_path,
-                                    f"{category}_partial_ratio_{partial_ratio_for_saving}_start_frame_{start_frame_id_for_saving}_use_sph_{use_sph}_use_sd_{use_sd}",
+                                    category,
                                 )
-                                os.makedirs(category_ratio_use_sph_path, exist_ok=True)
-                                sfm_pcl_type_path = os.path.join(
-                                    category_ratio_use_sph_path,
-                                    f"sfm_type_{sfm_type_for_saving}_pcl_type_{pcl_type_for_saving}",
-                                )
-                                os.makedirs(sfm_pcl_type_path, exist_ok=True)
-                                folder_path = os.path.join(
-                                    sfm_pcl_type_path,
+                                os.makedirs(category_path, exist_ok=True)
+                                aligned_path = os.path.join(
+                                    category_path,
                                     f"ref_id_{ref_name}_src_id_{src_name}_aligned",
                                 )
-                                folder_path_flip = os.path.join(
-                                    sfm_pcl_type_path,
-                                    f"ref_id_{ref_name}_src_id_{src_name}_aligned_flip",
-                                )
-                                os.makedirs(folder_path, exist_ok=True)
+                                os.makedirs(aligned_path, exist_ok=True)
                                 transformed_pts_src = (
                                     (inv_tform4x4(src_tform4x4_ref))
                                     @ torch.cat(
@@ -529,7 +520,7 @@ class NeMo_Align3D(OD3D_Method):
                                     pts=pts_src,
                                     pts_ref=pts_ref,
                                     filename=os.path.join(
-                                        sfm_pcl_type_path,
+                                        category_path,
                                         f"ref_id_{ref_name}_src_id_{src_name}",
                                     ),
                                 )
@@ -537,32 +528,23 @@ class NeMo_Align3D(OD3D_Method):
                                 save_visualization_mesh(
                                     pts=transformed_pts_src[:, :3],
                                     pts_ref=pts_ref,
-                                    filename=folder_path,
+                                    filename=aligned_path,
                                 )
 
                                 save_visualization_mesh_with_color(
-                                    pts=pts_src,
-                                    pts_ref=pts_ref,
-                                    pts_ids=best_correspondence,
+                                    root_path=vi_mesh_path,
+                                    category=category,
+                                    ref_name=ref_name,
+                                    src_name=src_name,
+                                    pts_ref=ref_pts3d,
+                                    pts_color_ref=ref_pts3d_colors,
+                                    pts_src=src_pts3d,
+                                    pts_color_src=src_pts3d_colors,
                                     pts_ref_ids=best_ref_correspondence,
-                                    filename=os.path.join(
-                                        sfm_pcl_type_path,
-                                        f"ref_id_{ref_name}_src_id_{src_name}",
-                                    ),
-                                    original_pts_ref=ref_pts3d,
-                                    original_pts_color_ref=ref_pts3d_colors,
-                                    original_pts_src=src_pts3d,
-                                    original_pts_color_src=src_pts3d_colors,
+                                    pts_src_ids=best_src_correspondence,
+                                    transformed_pts_src=transformed_pts_src[:, :3],
+                                    baseline=True,
                                 )
-
-                                # save_visualization_mesh_with_color(pts= transformed_pts_src[:,:3], pts_ref= pts_ref, pts_ids= best_correspondence, pts_ref_ids= best_ref_correspondence, filename= folder_path)
-
-                                os.makedirs(
-                                    os.path.join(sfm_pcl_type_path, f"{category}"),
-                                    exist_ok=True,
-                                )
-                                # np.save( os.path.join(sfm_pcl_type_path, f'{category}',f'dino_{ref_name}.npy'), ref_mesh_feat_attached)
-                                # np.save( os.path.join(sfm_pcl_type_path, f'{category}',f'dino_{src_name}.npy'), src_mesh_feat_attached)
                                 from od3d.cv.optimization.gradient_descent import (
                                     gradient_descent_se3,
                                 )

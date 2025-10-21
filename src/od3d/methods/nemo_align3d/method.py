@@ -318,10 +318,11 @@ class NeMo_Align3D(OD3D_Method):
                             # logger.info(pred_ref_tform_src)
                         else:
                             if self.config.global_optimization_steps > 1 and i > 0:
+                                # TODO: PLEASE IGNORE THIS PART
                                 # ref_vertices_mask = self.sequences_mesh_ids_for_verts == ref_mesh_id
                                 # pts = self.meshes.verts.clone().detach()
                                 # pts_ref = pts[ref_vertices_mask].clone()
-                                # TODO: reference points from multiple point clouds have different scale and therefore problematic to fit with correspondences over multiple points
+                                
                                 pts_ref = torch.cat(
                                     [
                                         transf3d_broadcast(
@@ -420,18 +421,8 @@ class NeMo_Align3D(OD3D_Method):
                                 logger.info(
                                     f"category: {category}, pts-src: {pts_src.shape}, pts-ref: {pts_ref.shape}",
                                 )
-
-                                dist_ref_src = (
-                                    ref_sequences[ref_mesh_id]
-                                    .read_mesh_feats_dist(
-                                        src_sequences[src_mesh_id],
-                                    )
-                                    .to(device=self.device, dtype=dtype)
-                                )  # 452, 452
-                                # division by two to normalize to 0. - 1.
-                                dist_ref_src = dist_ref_src / 2.0
                                 
-                                from od3d.datasets.ot.optimal_transport import load_vertices, ot_based_ransac
+                                from od3d.datasets.ot.optimal_transport import ot_based_ransac
                                 root_path = ref_sequences[ref_mesh_id].path_preprocess
                                 category = ref_sequences[ref_mesh_id].name_unique.split('/')[0]
                                 sequence1 = ref_sequences[ref_mesh_id].name_unique.split('/')[1]
@@ -442,8 +433,8 @@ class NeMo_Align3D(OD3D_Method):
                                 )
                                 (
                                     src_tform4x4_ref,
-                                    best_correspondence,
                                     best_ref_correspondence,
+                                    best_src_correspondence,
                                     src_tform4x4_ref_score,
                                     dist_ref_src,
                                 ) = ot_based_ransac(
@@ -482,26 +473,17 @@ class NeMo_Align3D(OD3D_Method):
                                 ref_name = ref_sequences[ref_mesh_id].name
                                 vi_mesh_path = (
                                     "/storage/user/jiso/CO3D_V2_Preprocess/output_ot/vis_meshes"
-                                )
-                                category_ratio_use_sph_path = os.path.join(
+                                )                                
+                                category_path = os.path.join(
                                     vi_mesh_path,
-                                    f"{category}_partial_ratio_{partial_ratio_for_saving}_start_frame_{start_frame_id_for_saving}_use_sph_{use_sph}_use_sd_{use_sd}",
+                                    category,
                                 )
-                                os.makedirs(category_ratio_use_sph_path, exist_ok=True)
-                                sfm_pcl_type_path = os.path.join(
-                                    category_ratio_use_sph_path,
-                                    f"sfm_type_{sfm_type_for_saving}_pcl_type_{pcl_type_for_saving}",
-                                )
-                                os.makedirs(sfm_pcl_type_path, exist_ok=True)
-                                folder_path = os.path.join(
-                                    sfm_pcl_type_path,
+                                os.makedirs(category_path, exist_ok=True)
+                                aligned_path = os.path.join(
+                                    category_path,
                                     f"ref_id_{ref_name}_src_id_{src_name}_aligned",
                                 )
-                                folder_path_flip = os.path.join(
-                                    sfm_pcl_type_path,
-                                    f"ref_id_{ref_name}_src_id_{src_name}_aligned_flip",
-                                )
-                                os.makedirs(folder_path, exist_ok=True)
+                                os.makedirs(aligned_path, exist_ok=True)
                                 transformed_pts_src = (
                                     (src_tform4x4_ref)
                                     @ torch.cat(
@@ -528,7 +510,7 @@ class NeMo_Align3D(OD3D_Method):
                                     pts=pts_src,
                                     pts_ref=pts_ref,
                                     filename=os.path.join(
-                                        sfm_pcl_type_path,
+                                        category_path,
                                         f"ref_id_{ref_name}_src_id_{src_name}",
                                     ),
                                 )
@@ -536,32 +518,22 @@ class NeMo_Align3D(OD3D_Method):
                                 save_visualization_mesh(
                                     pts=transformed_pts_src[:, :3],
                                     pts_ref=pts_ref,
-                                    filename=folder_path,
+                                    filename=aligned_path,
                                 )
 
-                                # save_visualization_mesh_with_color(
-                                #     pts=pts_src,
-                                #     pts_ref=pts_ref,
-                                #     pts_ids=best_correspondence,
-                                #     pts_ref_ids=best_ref_correspondence,
-                                #     filename=os.path.join(
-                                #         sfm_pcl_type_path,
-                                #         f"ref_id_{ref_name}_src_id_{src_name}",
-                                #     ),
-                                #     original_pts_ref=ref_pts3d,
-                                #     original_pts_color_ref=ref_pts3d_colors,
-                                #     original_pts_src=src_pts3d,
-                                #     original_pts_color_src=src_pts3d_colors,
-                                # )
-
-                                # save_visualization_mesh_with_color(pts= transformed_pts_src[:,:3], pts_ref= pts_ref, pts_ids= best_correspondence, pts_ref_ids= best_ref_correspondence, filename= folder_path)
-
-                                os.makedirs(
-                                    os.path.join(sfm_pcl_type_path, f"{category}"),
-                                    exist_ok=True,
+                                save_visualization_mesh_with_color(
+                                    root_path=vi_mesh_path,
+                                    category=category,
+                                    ref_name=ref_name,
+                                    src_name=src_name,
+                                    pts_ref=ref_pts3d,
+                                    pts_color_ref=ref_pts3d_colors,
+                                    pts_src=src_pts3d,
+                                    pts_color_src=src_pts3d_colors,
+                                    pts_ref_ids=best_ref_correspondence,
+                                    pts_src_ids=best_src_correspondence,
+                                    transformed_pts_src=transformed_pts_src[:, :3],
                                 )
-                                # np.save( os.path.join(sfm_pcl_type_path, f'{category}',f'dino_{ref_name}.npy'), ref_mesh_feat_attached)
-                                # np.save( os.path.join(sfm_pcl_type_path, f'{category}',f'dino_{src_name}.npy'), src_mesh_feat_attached)
                                 from od3d.cv.optimization.gradient_descent import (
                                     gradient_descent_se3,
                                 )
@@ -631,7 +603,7 @@ class NeMo_Align3D(OD3D_Method):
                         logger.info(f"ref seq {ref_sequences_unique_names[r]}")
                         logger.info(f"src_seq {src_sequences_unique_names[s]}")
                         logger.info(
-                            f"diff rot degree for the baseline is {180 * diff_rot_angle_rad / torch.pi}"
+                            f"diff rot degree for the optimal transport is {180 * diff_rot_angle_rad / torch.pi}"
                         )
                         # logger.info(f'diff_rot_degree mast3r is {180 * diff_rot_angle_rad_mast3r / torch.pi}')
                         print(

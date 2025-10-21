@@ -80,7 +80,7 @@ def umeyama(src, dst, estimate_scale=True):
     return T, scale
 
 # TODO: more iterations, run umeyama at the end with best_inliers
-def run_ransac(match0, match1, threshold = 2, minimal_correspondences = 4, iter = 1000):
+def run_ransac(match0, match1, threshold = 1, minimal_correspondences = 4, iter = 1000):
     print("threshold:", threshold)
     best_num_inliers = 0
     best_inliers = []

@@ -143,16 +143,16 @@ def ot_based_ransac(
         raise RuntimeError("Not enough matches for transformation estimation.")
 
     # threshold = decide_threshold(match0, match1)
-    best_inliers, best_T = run_ransac(match0, match1, threshold=1.0, minimal_correspondences=4, iter=2000)
+    best_inliers, best_T = run_ransac(match0, match1, threshold=0.2, minimal_correspondences=4, iter=2000)
     best_model = torch.from_numpy(best_T).float()  # shape: (4, 4)
-    best_correspondence = torch.tensor(match0[best_inliers]).float()
-    best_ref_correspondence = torch.tensor(match1[best_inliers]).float()
+    best_ref_correspondence = torch.tensor(match0[best_inliers]).float()
+    best_src_correspondence = torch.tensor(match1[best_inliers]).float()
     best_score = torch.tensor(len(best_inliers)).float()
 
     return (
         best_model,
-        best_correspondence,
         best_ref_correspondence,
+        best_src_correspondence,
         best_score,
         dist_matrix,
     )
